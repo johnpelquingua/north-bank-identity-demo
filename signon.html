@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://auth.pingone.sg; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+  <title>Sign in · North Bank</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="signon.css">
+  <script src="signon.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to sign in</a>
+  <div class="login">
+    <section class="story">
+      <div class="brand"><span class="mark" aria-hidden="true">n</span>north<span style="font-weight:400">bank</span></div>
+      <h1>A little clarity.<br>A lot of possibility.</h1>
+      <p>Your everyday banking, all in one place.</p>
+      <footer>Fictional bank. Sample balances. Built for identity testing.</footer>
+    </section>
+    <main id="main" class="login-form">
+      <div class="login-inner">
+        <span class="pill"><span class="dot"></span>Identity sandbox</span>
+        <h1>Welcome back.</h1>
+        <p class="muted">Sign in to your banking dashboard.</p>
+        <p id="flow-status" class="small muted" role="status">Preparing secure sign-in…</p>
+        <p id="flow-error" class="error" role="alert" hidden></p>
+        <form id="credentials" autocomplete="on">
+          <label for="username">Username</label>
+          <input id="username" name="username" autocomplete="username" required>
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+          <button id="credentials-submit" class="btn wide" type="submit" disabled>Sign in</button>
+        </form>
+        <form id="otp-step" hidden>
+          <label for="otp">Verification code</label>
+          <input id="otp" name="otp" inputmode="numeric" autocomplete="one-time-code" required>
+          <button class="btn wide" type="submit">Verify</button>
+        </form>
+        <form id="device-step" hidden>
+          <label for="device">Choose a verification device</label>
+          <select id="device" name="device" required></select>
+          <button class="btn wide" type="submit">Continue</button>
+        </form>
+        <p id="push-step" role="status" hidden>Approve the sign-in request on your device.</p>
+        <p class="small muted signon-help">Your credentials are checked by PingOne using your organization’s AD connection.</p>
+        <a id="restart" class="action" href="./" hidden>Start sign-in again</a>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
+
