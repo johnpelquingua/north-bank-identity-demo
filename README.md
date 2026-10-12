@@ -6,7 +6,7 @@ App URL after GitHub Pages deployment: https://johnpelquingua.github.io/north-ba
 
 ## Sign in
 
-Select **Sign in with PingOne**. The browser opens PingOne's username and password form, where the assigned policy can authenticate against AD through an LDAP gateway and enforce MFA. The North Bank page does not collect an AD password. After login, it reads the PingOne UserInfo response to populate the profile. The demo account and public connection controls have been removed from the welcome screen.
+Opening North Bank starts PingOne sign-in automatically. PingOne then shows its username and password form, where the assigned policy can authenticate against AD through an LDAP gateway and enforce MFA. The North Bank page does not collect an AD password. After login, it reads the PingOne UserInfo response to populate the profile. The demo account and public connection controls have been removed from the welcome screen. After logout or a sign-in error, the North Bank page keeps a button to retry.
 
 No real money or banking API is involved. A successful OIDC login alone does not prove that a fresh MFA challenge occurred; verify policy execution in PingOne authentication logs.
 
@@ -34,7 +34,7 @@ For PingOne, register these values for this deployment:
 | Post-logout redirect URI | `https://johnpelquingua.github.io/north-bank-identity-demo/` |
 | Allowed browser origin | `https://johnpelquingua.github.io` |
 
-The hosted app is preconfigured with the North Bank PingOne sandbox issuer and public application client ID, so visitors can select **Sign in with PingOne** immediately. The browser uses a hosted identity provider for sign-in; no server secrets are needed by GitHub Pages.
+The hosted app is preconfigured with the North Bank PingOne sandbox issuer and public application client ID, so sign-in begins when a visitor opens the page. The browser uses a hosted identity provider for sign-in; no server secrets are needed by GitHub Pages.
 
 ## Connect PingOne to AD
 
