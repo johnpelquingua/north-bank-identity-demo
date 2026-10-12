@@ -6,7 +6,7 @@ App URL after GitHub Pages deployment: https://johnpelquingua.github.io/north-ba
 
 ## Sign in
 
-Opening North Bank starts PingOne sign-in automatically. When the OIDC application's Signon URL is set to the North Bank `signon.html` page, the username and password form appears on North Bank. The browser sends the entered credentials directly to PingOne's short-lived flow; the assigned policy can authenticate against AD through the LDAP gateway and enforce MFA. The password is not stored in browser storage or sent to GitHub Pages. After login, the app reads PingOne UserInfo to populate the profile. After logout or an error, a retry button remains available.
+The main North Bank page shows the AD username and password fields immediately. In the background it starts a PingOne `pi.flow` authorization request with PKCE. When PingOne returns a short-lived flow, the Sign in button becomes available. The browser sends entered credentials directly to PingOne; the assigned policy can authenticate against AD through the LDAP gateway and enforce MFA. The password is not stored in browser storage or sent to GitHub Pages. After login, the app reads PingOne UserInfo to populate the profile. After logout or an error, a retry link remains available.
 
 No real money or banking API is involved. A successful OIDC login alone does not prove that a fresh MFA challenge occurred; verify policy execution in PingOne authentication logs.
 
@@ -35,7 +35,7 @@ For PingOne, register these values for this deployment:
 | Allowed browser origin | `https://johnpelquingua.github.io` |
 | Signon URL | `https://johnpelquingua.github.io/north-bank-identity-demo/signon.html` |
 
-The hosted app is preconfigured with the North Bank PingOne sandbox issuer and public application client ID, so sign-in begins when a visitor opens the page. The browser uses a hosted identity provider for sign-in; no server secrets are needed by GitHub Pages.
+The hosted app is preconfigured with the North Bank PingOne sandbox issuer and public application client ID, so customers do not enter either value. The browser calls PingOne's non-redirect Flows API for sign-in; no server secrets are needed by GitHub Pages.
 
 ## Connect PingOne to AD
 
@@ -50,20 +50,18 @@ The hosted app is preconfigured with the North Bank PingOne sandbox issuer and p
 7. The hosted app already has the North Bank sandbox issuer and public application client ID. For another environment, use the app's **PingOne setup** page to override these values with that environment's regional issuer URL from OIDC discovery and its public application client ID. Never enter a client secret or LDAP bind password into the app.
 8. Open the app with a test AD user. Test both the correct and an incorrect AD password. Check the sign-in events for gateway lookup, AD credential validation, and MFA, then confirm the profile claims are mapped correctly.
 
-### Show the credential form on North Bank
+### Keep the credential form on the main page
 
-1. Deploy the sign-on page and confirm that `signon.html` is available at the URL above.
-2. In PingOne, open **Applications → Applications → North Bank Web CIAM → Overview → Edit**. Set **Signon URL** to the exact `signon.html` URL above and save. This sets PingOne's `loginPageUrl` for the application; do not replace the OIDC redirect URI.
-3. Under the application's **Configuration → CORS Settings**, select **Allow specific origins** and allow `https://johnpelquingua.github.io`. Keep Authorization Code, PKCE S256, and the existing redirect URI.
-4. Open the app in a private browser window. It starts OIDC, PingOne redirects to North Bank with a short-lived `flowId`, and North Bank shows the credential form. Test a valid and invalid AD login and the assigned MFA steps. The form currently handles username/password, OTP, device choice, and push approval. Additional policy steps must be implemented before those steps can be used on this page.
+1. Under the application's **Configuration → CORS Settings**, select **Allow specific origins** and allow `https://johnpelquingua.github.io`. Keep Authorization Code, PKCE S256, and the existing redirect URI. The Signon URL can remain set to `signon.html`; the inline `pi.flow` path does not navigate there.
+2. Open the main app in a private browser window. Its AD credential form appears immediately while the PingOne flow starts in the background. Test a valid and invalid AD login and the assigned MFA steps. The form currently handles username/password, OTP, device choice, and push approval. Additional policy steps must be implemented before those steps can be used on this page.
 
-The hosted PingOne page remains in use until the Signon URL is saved. Do not put a worker client secret, LDAP bind password, or AD password in repository files or app configuration.
+Do not put a worker client secret, LDAP bind password, or AD password in repository files or app configuration.
 
 Profile data shown by this demo is read-only after PingOne sign-in. There is no app-to-AD connection, password change, AD writeback, or general directory synchronization in this example.
 
 ## Authentication design
 
-The browser uses OIDC Authorization Code with S256 PKCE. It validates the authorization response `state`, exchanges the code, verifies the RS256 ID token against PingOne JWKS, checks issuer, audience, authorized party, nonce, issue and expiry times, and matches the UserInfo `sub` to the ID token. Tokens remain in memory and disappear on reload. The short-lived PKCE transaction is in `sessionStorage` and is removed on callback. Public issuer/client ID settings are stored in `localStorage` for convenience.
+The browser uses OIDC Authorization Code with S256 PKCE and PingOne's non-redirect `pi.flow` response mode. It exchanges the resulting authorization code, verifies the RS256 ID token against PingOne JWKS, checks issuer, audience, authorized party, nonce, issue and expiry times, and matches the UserInfo `sub` to the ID token. Redirect callbacks, if used, also validate `state`. Tokens remain in memory and disappear on reload. The short-lived PKCE transaction is in `sessionStorage` and is removed when the code is redeemed. Public issuer/client ID settings are stored in `localStorage` for convenience.
 
 The issuer allowlist covers several standard PingOne regional hosts. If your tenant uses another supported host, review and update `validateIssuer()` and endpoint checks before testing. The code expects RS256; configure the application accordingly. The user session ends at ID token expiry; there is no refresh-token flow.
 
@@ -76,7 +74,7 @@ This is a client-side identity demonstration. A real banking system needs server
 | `index.html` | Accessible page shell |
 | `style.css` | Responsive interface |
 | `app.js` | UI, sample data, PingOne OIDC flow |
-| `signon.html`, `signon.css`, `signon.js` | North Bank custom PingOne flow form |
+| `signon.html`, `signon.css`, `signon.js` | Main-page PingOne flow form and legacy sign-on URL handler |
 | `tests/auth.test.cjs` | Token, issuer, and CSV security checks |
 | `.github/workflows/checks.yml` | CI syntax and test checks |
 | `.github/workflows/pages.yml` | GitHub Pages deployment |
