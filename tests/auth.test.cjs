@@ -71,3 +71,24 @@ test('CSV export protects text fields and keeps negative amounts numeric', () =>
   assert.match(result, /"'@attacker"/);
   assert.match(result, /,-25\.50$/);
 });
+
+test('opening the main page starts a non-redirect PingOne flow with PKCE', async () => {
+  let request;
+  let receivedFlow;
+  const flow = { id: '0370bd50-0f2a-4749-afd4-195a63553372' };
+  context.document = { querySelector: () => ({ textContent: '' }) };
+  context.sessionStorage = { setItem: (key, value) => { context.pending = { key, value }; } };
+  context.discovery = async () => ({ authorization_endpoint: 'https://auth.pingone.sg/22f37616-5cf6-47ee-8111-f0c870cbfa8f/as/authorize' });
+  context.getJSON = async (url, options) => { request = { url, options }; return flow; };
+  context.beginFlow = value => { receivedFlow = value; };
+  await context.startLogin();
+  const url = new URL(request.url);
+  assert.equal(url.searchParams.get('response_mode'), 'pi.flow');
+  assert.equal(url.searchParams.get('response_type'), 'code');
+  assert.equal(url.searchParams.get('prompt'), 'login');
+  assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
+  assert.equal(request.options.credentials, 'include');
+  assert.equal(receivedFlow, flow);
+  assert.equal(JSON.parse(context.pending.value).mode, 'flow');
+});
+
