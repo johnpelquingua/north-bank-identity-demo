@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { flowEndpoint, signonRequest, actionEndpoint, resumeEndpoint } = require('../signon.js');
+const { flowEndpoint, signonRequest, validatedFlowEndpoint, actionEndpoint, resumeEndpoint } = require('../signon.js');
 
 const id = '0370bd50-0f2a-4749-afd4-195a63553372';
 const expected = `https://auth.pingone.sg/22f37616-5cf6-47ee-8111-f0c870cbfa8f/flows/${id}`;
@@ -18,6 +18,12 @@ test('sign-in link accepts a valid flow without an environment parameter', () =>
   assert.equal(signonRequest(new URLSearchParams()), null);
   assert.throws(() => signonRequest(new URLSearchParams({ flowId: id, environmentId: '00000000-0000-0000-0000-000000000000' })), /invalid/);
   assert.throws(() => signonRequest(new URLSearchParams({ flowId: '../as/token' })), /Invalid sign-in request/);
+});
+
+test('inline sign-in only accepts a flow from the configured environment', () => {
+  assert.equal(validatedFlowEndpoint({ id, environment: { id: '22f37616-5cf6-47ee-8111-f0c870cbfa8f' } }), expected);
+  assert.throws(() => validatedFlowEndpoint({ id, environment: { id: '00000000-0000-0000-0000-000000000000' } }), /another environment/);
+  assert.throws(() => validatedFlowEndpoint({ id: '../as/token', environment: { id: '22f37616-5cf6-47ee-8111-f0c870cbfa8f' } }), /Invalid sign-in request/);
 });
 
 test('completed sign-in only resumes at the trusted PingOne endpoint', () => {
