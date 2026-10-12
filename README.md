@@ -4,10 +4,9 @@ A responsive, fictional banking interface for testing **PingOne sign-in backed b
 
 App URL after GitHub Pages deployment: https://johnpelquingua.github.io/north-bank-identity-demo/
 
-## Two ways to use it
+## Sign in
 
-- **Demo account:** Explore the interface without credentials. Balances and transfers are simulated and reset on reload. Profile changes persist only in this browser.
-- **PingOne sign-in:** Register this page as an OIDC Single Page App in PingOne. A redirect sends users to PingOne, where the assigned policy can authenticate against AD through an LDAP gateway and enforce MFA. The app never receives an AD password. After login, it reads the PingOne UserInfo response to populate the profile.
+Select **Sign in with PingOne**. The browser opens PingOne's username and password form, where the assigned policy can authenticate against AD through an LDAP gateway and enforce MFA. The North Bank page does not collect an AD password. After login, it reads the PingOne UserInfo response to populate the profile. The demo account and public connection controls have been removed from the welcome screen.
 
 No real money or banking API is involved. A successful OIDC login alone does not prove that a fresh MFA challenge occurred; verify policy execution in PingOne authentication logs.
 
@@ -35,7 +34,7 @@ For PingOne, register these values for this deployment:
 | Post-logout redirect URI | `https://johnpelquingua.github.io/north-bank-identity-demo/` |
 | Allowed browser origin | `https://johnpelquingua.github.io` |
 
-The hosted app is preconfigured with the North Bank PingOne sandbox issuer and public application client ID, so visitors can select **Sign in with PingOne** immediately. The **Configure PingOne connection** panel remains available for administrators who need to use another environment. The browser uses a hosted identity provider for sign-in; no server secrets are needed by GitHub Pages.
+The hosted app is preconfigured with the North Bank PingOne sandbox issuer and public application client ID, so visitors can select **Sign in with PingOne** immediately. The browser uses a hosted identity provider for sign-in; no server secrets are needed by GitHub Pages.
 
 ## Connect PingOne to AD
 
@@ -48,7 +47,7 @@ The hosted app is preconfigured with the North Bank PingOne sandbox issuer and p
 5. On the gateway's **Lookup → User Types** tab, add a user type. Set **Password Authority** to **LDAP**, set the AD user search base DN and a unique link attribute such as `sAMAccountName`, and select the PingOne population and attribute mappings needed for OIDC profile claims. Leave **Enable password changes from PingOne** off for this authentication-only setup. Enable migration on first authentication if the test user does not already have a linked PingOne record. That creates a PingOne identity record; it does not write to AD.
 6. Create an authentication policy with a Login step that selects this gateway and user type under **Migrate Gateway Users Upon First Authentication**. Add a PingOne MFA step with the desired factors and enrollment behavior, then assign the policy to the OIDC application. Check that your PingOne tenant has both the primary authentication and MFA capabilities needed for this flow.
 7. The hosted app already has the North Bank sandbox issuer and public application client ID. For another environment, use the app's **PingOne setup** page to override these values with that environment's regional issuer URL from OIDC discovery and its public application client ID. Never enter a client secret, LDAP bind password, or AD credentials into the app.
-8. Sign out of demo mode and use **Sign in with PingOne** with a test AD user. Test both the correct and an incorrect AD password. Check the sign-in events for gateway lookup, AD credential validation, and MFA, then confirm the profile claims are mapped correctly.
+8. Use **Sign in with PingOne** with a test AD user. Test both the correct and an incorrect AD password. Check the sign-in events for gateway lookup, AD credential validation, and MFA, then confirm the profile claims are mapped correctly.
 
 Profile data shown by this demo is read-only after PingOne sign-in. There is no app-to-AD connection, password change, AD writeback, or general directory synchronization in this example.
 
