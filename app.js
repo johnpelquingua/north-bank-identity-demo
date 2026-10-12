@@ -1,7 +1,7 @@
 'use strict';
 const app=document.querySelector('#app');
 const baseURL=new URL('./',location.href).href;
-const defaultConfig={issuer:'',clientId:''};
+const defaultConfig={issuer:'https://auth.pingone.sg/22f37616-5cf6-47ee-8111-f0c870cbfa8f/as',clientId:'b62c72a0-1d23-4351-8f67-77054a795169'};
 const safeParse=(v,f)=>{try{return JSON.parse(v)||f}catch{return f}};
 let config=safeParse(localStorage.getItem('north.config'),defaultConfig);
 let session=null,page='overview',loginError='',expiryTimer;
