@@ -35,7 +35,7 @@ For PingOne, register these values for this deployment:
 | Post-logout redirect URI | `https://johnpelquingua.github.io/north-bank-identity-demo/` |
 | Allowed browser origin | `https://johnpelquingua.github.io` |
 
-Enter your PingOne issuer and public application client ID in the app. The browser uses a hosted identity provider for sign-in; no server secrets are needed by GitHub Pages.
+The hosted app is preconfigured with the North Bank PingOne sandbox issuer and public application client ID, so visitors can select **Sign in with PingOne** immediately. The **Configure PingOne connection** panel remains available for administrators who need to use another environment. The browser uses a hosted identity provider for sign-in; no server secrets are needed by GitHub Pages.
 
 ## Connect PingOne to AD
 
@@ -47,7 +47,7 @@ Enter your PingOne issuer and public application client ID in the app. The brows
 4. Under **Integrations → Gateways**, add an **LDAP gateway** with directory type Microsoft Active Directory, AD hostname, TLS connection (typically port `636` for LDAPS), and service account Bind DN/password. Save its generated gateway credential securely. Install and start the gateway instance on a host that can reach AD and PingOne; verify its status.
 5. On the gateway's **Lookup → User Types** tab, add a user type. Set **Password Authority** to **LDAP**, set the AD user search base DN and a unique link attribute such as `sAMAccountName`, and select the PingOne population and attribute mappings needed for OIDC profile claims. Leave **Enable password changes from PingOne** off for this authentication-only setup. Enable migration on first authentication if the test user does not already have a linked PingOne record. That creates a PingOne identity record; it does not write to AD.
 6. Create an authentication policy with a Login step that selects this gateway and user type under **Migrate Gateway Users Upon First Authentication**. Add a PingOne MFA step with the desired factors and enrollment behavior, then assign the policy to the OIDC application. Check that your PingOne tenant has both the primary authentication and MFA capabilities needed for this flow.
-7. In the app's **PingOne setup** page, enter your regional issuer URL from OIDC discovery (typically `https://auth.pingone.com/ENVIRONMENT_ID/as`) and the public application client ID. Never enter a client secret, LDAP bind password, or AD credentials into the app.
+7. The hosted app already has the North Bank sandbox issuer and public application client ID. For another environment, use the app's **PingOne setup** page to override these values with that environment's regional issuer URL from OIDC discovery and its public application client ID. Never enter a client secret, LDAP bind password, or AD credentials into the app.
 8. Sign out of demo mode and use **Sign in with PingOne** with a test AD user. Test both the correct and an incorrect AD password. Check the sign-in events for gateway lookup, AD credential validation, and MFA, then confirm the profile claims are mapped correctly.
 
 Profile data shown by this demo is read-only after PingOne sign-in. There is no app-to-AD connection, password change, AD writeback, or general directory synchronization in this example.
