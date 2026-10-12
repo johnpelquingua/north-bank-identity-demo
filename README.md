@@ -6,7 +6,7 @@ App URL after GitHub Pages deployment: https://johnpelquingua.github.io/north-ba
 
 ## Sign in
 
-Opening North Bank starts PingOne sign-in automatically. PingOne then shows its username and password form, where the assigned policy can authenticate against AD through an LDAP gateway and enforce MFA. The North Bank page does not collect an AD password. After login, it reads the PingOne UserInfo response to populate the profile. The demo account and public connection controls have been removed from the welcome screen. After logout or a sign-in error, the North Bank page keeps a button to retry.
+Opening North Bank starts PingOne sign-in automatically. When the OIDC application's Signon URL is set to the North Bank `signon.html` page, the username and password form appears on North Bank. The browser sends the entered credentials directly to PingOne's short-lived flow; the assigned policy can authenticate against AD through the LDAP gateway and enforce MFA. The password is not stored in browser storage or sent to GitHub Pages. After login, the app reads PingOne UserInfo to populate the profile. After logout or an error, a retry button remains available.
 
 No real money or banking API is involved. A successful OIDC login alone does not prove that a fresh MFA challenge occurred; verify policy execution in PingOne authentication logs.
 
@@ -22,7 +22,7 @@ Visit `http://localhost:8080/`. For local PingOne testing, register that exact r
 
 ## Deploy with GitHub Pages
 
-In the repository, open **Settings → Pages → Build and deployment** and select **GitHub Actions** as the source. The `Deploy banking app` workflow runs on pushes to `main` or can be started manually from **Actions**. It checks the application and publishes only `index.html`, `style.css`, and `app.js`.
+In the repository, open **Settings → Pages → Build and deployment** and select **GitHub Actions** as the source. The `Deploy banking app` workflow runs on pushes to `main` or can be started manually from **Actions**. It checks the application and publishes `index.html`, `style.css`, `app.js`, `signon.html`, `signon.css`, and `signon.js`.
 
 This repository is public, so GitHub Pages works with GitHub Free. The published app and repository source are visible to anyone.
 
@@ -33,12 +33,13 @@ For PingOne, register these values for this deployment:
 | Redirect URI | `https://johnpelquingua.github.io/north-bank-identity-demo/` |
 | Post-logout redirect URI | `https://johnpelquingua.github.io/north-bank-identity-demo/` |
 | Allowed browser origin | `https://johnpelquingua.github.io` |
+| Signon URL | `https://johnpelquingua.github.io/north-bank-identity-demo/signon.html` |
 
 The hosted app is preconfigured with the North Bank PingOne sandbox issuer and public application client ID, so sign-in begins when a visitor opens the page. The browser uses a hosted identity provider for sign-in; no server secrets are needed by GitHub Pages.
 
 ## Connect PingOne to AD
 
-**Authentication-only scope:** AD is the password authority. PingOne looks up the user through its LDAP gateway and asks AD to validate the submitted credentials; the web app only receives OIDC tokens and profile claims from PingOne. The gateway does not need to copy AD passwords into PingOne or write password or profile changes back to AD. PingOne may create a linked user record on first login so it can issue tokens and apply MFA. This record is in PingOne, not an update to AD.
+**Authentication-only scope:** AD is the password authority. The North Bank sign-on page handles entered credentials in browser memory and sends them directly to PingOne's Flows API. PingOne looks up the user through its LDAP gateway and asks AD to validate the password. The gateway does not need to copy AD passwords into PingOne or write password or profile changes back to AD. PingOne may create a linked user record on first login so it can issue tokens and apply MFA. This record is in PingOne, not an update to AD.
 
 1. In PingOne, create and enable an **OIDC Single Page App**. Select Authorization Code, response type `code`, token endpoint authentication `NONE`, PKCE enforcement `S256_REQUIRED`, and **RS256** ID token signing. Grant `openid profile email` scopes and map the profile claims you want to display.
 2. Set the redirect URI and post-logout URI to the exact URL shown on the demo's **PingOne setup** page. Configure that page's origin in PingOne CORS settings. Keep the `localhost` and hosted URLs separate.
@@ -46,8 +47,17 @@ The hosted app is preconfigured with the North Bank PingOne sandbox issuer and p
 4. Under **Integrations → Gateways**, add an **LDAP gateway** with directory type Microsoft Active Directory, AD hostname, TLS connection (typically port `636` for LDAPS), and service account Bind DN/password. Save its generated gateway credential securely. Install and start the gateway instance on a host that can reach AD and PingOne; verify its status.
 5. On the gateway's **Lookup → User Types** tab, add a user type. Set **Password Authority** to **LDAP**, set the AD user search base DN and a unique link attribute such as `sAMAccountName`, and select the PingOne population and attribute mappings needed for OIDC profile claims. Leave **Enable password changes from PingOne** off for this authentication-only setup. Enable migration on first authentication if the test user does not already have a linked PingOne record. That creates a PingOne identity record; it does not write to AD.
 6. Create an authentication policy with a Login step that selects this gateway and user type under **Migrate Gateway Users Upon First Authentication**. Add a PingOne MFA step with the desired factors and enrollment behavior, then assign the policy to the OIDC application. Check that your PingOne tenant has both the primary authentication and MFA capabilities needed for this flow.
-7. The hosted app already has the North Bank sandbox issuer and public application client ID. For another environment, use the app's **PingOne setup** page to override these values with that environment's regional issuer URL from OIDC discovery and its public application client ID. Never enter a client secret, LDAP bind password, or AD credentials into the app.
-8. Use **Sign in with PingOne** with a test AD user. Test both the correct and an incorrect AD password. Check the sign-in events for gateway lookup, AD credential validation, and MFA, then confirm the profile claims are mapped correctly.
+7. The hosted app already has the North Bank sandbox issuer and public application client ID. For another environment, use the app's **PingOne setup** page to override these values with that environment's regional issuer URL from OIDC discovery and its public application client ID. Never enter a client secret or LDAP bind password into the app.
+8. Open the app with a test AD user. Test both the correct and an incorrect AD password. Check the sign-in events for gateway lookup, AD credential validation, and MFA, then confirm the profile claims are mapped correctly.
+
+### Show the credential form on North Bank
+
+1. Deploy the sign-on page and confirm that `signon.html` is available at the URL above.
+2. In PingOne, open **Applications → Applications → North Bank Web CIAM → Overview → Edit**. Set **Signon URL** to the exact `signon.html` URL above and save. This sets PingOne's `loginPageUrl` for the application; do not replace the OIDC redirect URI.
+3. Under the application's **Configuration → CORS Settings**, select **Allow specific origins** and allow `https://johnpelquingua.github.io`. Keep Authorization Code, PKCE S256, and the existing redirect URI.
+4. Open the app in a private browser window. It starts OIDC, PingOne redirects to North Bank with a short-lived `flowId`, and North Bank shows the credential form. Test a valid and invalid AD login and the assigned MFA steps. The form currently handles username/password, OTP, device choice, and push approval. Additional policy steps must be implemented before those steps can be used on this page.
+
+The hosted PingOne page remains in use until the Signon URL is saved. Do not put a worker client secret, LDAP bind password, or AD password in repository files or app configuration.
 
 Profile data shown by this demo is read-only after PingOne sign-in. There is no app-to-AD connection, password change, AD writeback, or general directory synchronization in this example.
 
@@ -66,6 +76,7 @@ This is a client-side identity demonstration. A real banking system needs server
 | `index.html` | Accessible page shell |
 | `style.css` | Responsive interface |
 | `app.js` | UI, sample data, PingOne OIDC flow |
+| `signon.html`, `signon.css`, `signon.js` | North Bank custom PingOne flow form |
 | `tests/auth.test.cjs` | Token, issuer, and CSV security checks |
 | `.github/workflows/checks.yml` | CI syntax and test checks |
 | `.github/workflows/pages.yml` | GitHub Pages deployment |
@@ -75,3 +86,4 @@ This is a client-side identity demonstration. A real banking system needs server
 Test valid AD login, bad AD password, MFA cancel/deny, gateway outage, redirect mismatch, logout, and expiry. Verify the correct PingOne policy is assigned to the app. If an existing SSO session skips a challenge, inspect the policy and session settings before drawing conclusions about MFA.
 
 Official references: [PingOne SPA configuration](https://developer.pingidentity.com/pingone-api/platform/applications/applications-1/create-application-oidc-protocol---single-page-app.html), [LDAP gateway setup](https://docs.pingidentity.com/pingone/integrations/p1_gateways_overview.html), [LDAP user type and password authority](https://docs.pingidentity.com/pingone/integrations/p1_add_a_user_type.html), and [gateway authentication policy](https://docs.pingidentity.com/pingone/integrations/p1_create_auth_policy_using_the_gateway.html).
+
