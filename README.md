@@ -2,7 +2,7 @@
 
 A responsive, fictional banking interface for testing **PingOne sign-in backed by Microsoft Active Directory and PingOne MFA**. It includes a login page, account overview, transaction history, profile, simulated transfers, CSV export, and an in-app setup guide.
 
-[Open the hosted demo](https://jp-banking-demo.racingsugar.chatgpt.site) (access to the private preview may be required).
+App URL after GitHub Pages deployment: https://johnpelquingua.github.io/north-bank-identity-demo/
 
 ## Two ways to use it
 
@@ -20,6 +20,22 @@ python3 -m http.server 8080
 ```
 
 Visit `http://localhost:8080/`. For local PingOne testing, register that exact redirect and post-logout URL, and allow `http://localhost:8080` as a browser origin. The hosted preview's URL needs separate entries. Run `npm test` to check the authentication validation logic; Node.js 20+ is required for tests.
+
+## Deploy with GitHub Pages
+
+In the repository, open **Settings → Pages → Build and deployment** and select **GitHub Actions** as the source. The `Deploy banking app` workflow runs on pushes to `main` or can be started manually from **Actions**. It checks the application and publishes only `index.html`, `style.css`, and `app.js`.
+
+GitHub Pages from a private repository requires a GitHub plan that supports it. Keep the repository private; do not change its visibility just to enable hosting. The published site is normally public, even when the source repository is private.
+
+For PingOne, register these values for this deployment:
+
+| Setting | Value |
+| --- | --- |
+| Redirect URI | `https://johnpelquingua.github.io/north-bank-identity-demo/` |
+| Post-logout redirect URI | `https://johnpelquingua.github.io/north-bank-identity-demo/` |
+| Allowed browser origin | `https://johnpelquingua.github.io` |
+
+Enter your PingOne issuer and public application client ID in the app. The browser uses a hosted identity provider for sign-in; no server secrets are needed by GitHub Pages.
 
 ## Connect PingOne to AD
 
@@ -49,6 +65,7 @@ This is a client-side identity demonstration. A real banking system needs server
 | `app.js` | UI, sample data, PingOne OIDC flow |
 | `tests/auth.test.cjs` | Token, issuer, and CSV security checks |
 | `.github/workflows/checks.yml` | CI syntax and test checks |
+| `.github/workflows/pages.yml` | GitHub Pages deployment |
 
 ## Validation checklist
 

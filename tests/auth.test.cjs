@@ -15,7 +15,7 @@ const context = vm.createContext({
   atob,
   btoa,
   document: undefined,
-  location: { origin: 'http://localhost:8080', pathname: '/' },
+  location: { origin: 'http://localhost:8080', pathname: '/', href: 'http://localhost:8080/' },
   localStorage: { getItem: () => null },
   console,
 });

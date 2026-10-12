@@ -1,6 +1,6 @@
 'use strict';
 const app=document.querySelector('#app');
-const baseURL=location.origin+location.pathname;
+const baseURL=new URL('./',location.href).href;
 const defaultConfig={issuer:'',clientId:''};
 const safeParse=(v,f)=>{try{return JSON.parse(v)||f}catch{return f}};
 let config=safeParse(localStorage.getItem('north.config'),defaultConfig);
