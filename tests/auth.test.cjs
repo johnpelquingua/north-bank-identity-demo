@@ -72,6 +72,14 @@ test('CSV export protects text fields and keeps negative amounts numeric', () =>
   assert.match(result, /,-25\.50$/);
 });
 
+test('profile shows the phone claim returned for a signed-in user', () => {
+  evaluate("session={mode:'pingone',user:{sub:'ad-user-1',phone_number:'+63 917 123 4567'}}");
+  const html = evaluate('profile()');
+  assert.match(html, /Telephone number/);
+  assert.match(html, /value="\+63 917 123 4567" readonly/);
+  evaluate('session=null');
+});
+
 test('opening the main page starts a non-redirect PingOne flow with PKCE', async () => {
   let request;
   let receivedFlow;
@@ -87,8 +95,8 @@ test('opening the main page starts a non-redirect PingOne flow with PKCE', async
   assert.equal(url.searchParams.get('response_type'), 'code');
   assert.equal(url.searchParams.get('prompt'), 'login');
   assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
+  assert.equal(url.searchParams.get('scope'), 'openid profile email phone');
   assert.equal(request.options.credentials, 'include');
   assert.equal(receivedFlow, flow);
   assert.equal(JSON.parse(context.pending.value).mode, 'flow');
 });
-
