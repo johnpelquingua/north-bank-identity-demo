@@ -41,11 +41,11 @@ The hosted app is preconfigured with the North Bank PingOne sandbox issuer and p
 
 **Authentication-only scope:** AD is the password authority. The North Bank sign-on page handles entered credentials in browser memory and sends them directly to PingOne's Flows API. PingOne looks up the user through its LDAP gateway and asks AD to validate the password. The gateway does not need to copy AD passwords into PingOne or write password or profile changes back to AD. PingOne may create a linked user record on first login so it can issue tokens and apply MFA. This record is in PingOne, not an update to AD.
 
-1. In PingOne, create and enable an **OIDC Single Page App**. Select Authorization Code, response type `code`, token endpoint authentication `NONE`, PKCE enforcement `S256_REQUIRED`, and **RS256** ID token signing. Grant `openid profile email` scopes and map the profile claims you want to display.
+1. In PingOne, create and enable an **OIDC Single Page App**. Select Authorization Code, response type `code`, token endpoint authentication `NONE`, PKCE enforcement `S256_REQUIRED`, and **RS256** ID token signing. Grant `openid profile email phone address` scopes and map the profile claims you want to display. The `phone` and `address` scopes request the standard `phone_number` and structured `address` claims from UserInfo.
 2. Set the redirect URI and post-logout URI to the exact URL shown on the demo's **PingOne setup** page. Configure that page's origin in PingOne CORS settings. Keep the `localhost` and hosted URLs separate.
 3. Prepare an AD test user and a directory service account with read access to the intended user search base. Configure a trusted certificate for LDAPS, and ensure the gateway host can reach the AD domain controller and PingOne.
 4. Under **Integrations → Gateways**, add an **LDAP gateway** with directory type Microsoft Active Directory, AD hostname, TLS connection (typically port `636` for LDAPS), and service account Bind DN/password. Save its generated gateway credential securely. Install and start the gateway instance on a host that can reach AD and PingOne; verify its status.
-5. On the gateway's **Lookup → User Types** tab, add a user type. Set **Password Authority** to **LDAP**, set the AD user search base DN and a unique link attribute such as `sAMAccountName`, and select the PingOne population and attribute mappings needed for OIDC profile claims. Leave **Enable password changes from PingOne** off for this authentication-only setup. Enable migration on first authentication if the test user does not already have a linked PingOne record. That creates a PingOne identity record; it does not write to AD.
+5. On the gateway's **Lookup → User Types** tab, add a user type. Set **Password Authority** to **LDAP**, set the AD user search base DN and a unique link attribute such as `sAMAccountName`, and select the PingOne population and attribute mappings needed for OIDC profile claims. Map AD `telephoneNumber` to PingOne's primary/work phone attribute and map AD address attributes such as `streetAddress`, `l`, `st`, `postalCode`, and `co` to the corresponding PingOne address fields if you want those values shown on the North Bank profile. Leave **Enable password changes from PingOne** off for this authentication-only setup. Enable migration on first authentication if the test user does not already have a linked PingOne record. That creates a PingOne identity record; it does not write to AD.
 6. Create an authentication policy with a Login step that selects this gateway and user type under **Migrate Gateway Users Upon First Authentication**. Add a PingOne MFA step with the desired factors and enrollment behavior, then assign the policy to the OIDC application. Check that your PingOne tenant has both the primary authentication and MFA capabilities needed for this flow.
 7. The hosted app already has the North Bank sandbox issuer and public application client ID. For another environment, use the app's **PingOne setup** page to override these values with that environment's regional issuer URL from OIDC discovery and its public application client ID. Never enter a client secret or LDAP bind password into the app.
 8. Open the app with a test AD user. Test both the correct and an incorrect AD password. Check the sign-in events for gateway lookup, AD credential validation, and MFA, then confirm the profile claims are mapped correctly.
@@ -58,6 +58,24 @@ The hosted app is preconfigured with the North Bank PingOne sandbox issuer and p
 Do not put a worker client secret, LDAP bind password, or AD password in repository files or app configuration.
 
 Profile data shown by this demo is read-only after PingOne sign-in. There is no app-to-AD connection, password change, AD writeback, or general directory synchronization in this example.
+
+### Show an AD telephone number in the user profile
+
+The North Bank profile displays the standard OIDC `phone_number` claim returned by PingOne UserInfo. It requests the `phone` scope when signing in; the claim is empty until the source and application mappings are configured.
+
+1. Confirm that the AD user's `telephoneNumber` attribute is populated. If you intend to show a mobile number instead, use AD `mobile` consistently in the following mapping.
+2. In **Integrations → Gateways → North Bank AD Gateway → Lookup → North Bank AD Users**, edit **Map Attributes**. Map AD `telephoneNumber` to the PingOne primary/work phone attribute. If the user was already migrated, enable **Update PingOne user attributes as users sign on** so a later AD sign-in refreshes their PingOne record. Check existing mappings before saving, because PingOne can fail authentication if an attribute update fails.
+3. In **Applications → Applications → North Bank Web CIAM → Resources**, allow the OIDC **phone** scope. If the application has a custom OIDC attribute mapping, map `phone_number` to the PingOne phone attribute as well.
+4. Sign out and sign in again with the AD user. Open **My profile**. If Telephone number remains empty, inspect that user's PingOne directory phone value and the `/userinfo` response; the page intentionally does not invent a number or query AD directly.
+
+### Show an AD address in the user profile
+
+The North Bank profile displays PingOne UserInfo's OIDC `address` claim, using its formatted value when available or combining the street, city, region, postal code, and country fields. The app requests the `address` scope at sign-in. Allowing that scope alone does not populate a user's address.
+
+1. Confirm the relevant AD address attributes are populated for the user. Common attributes include `streetAddress`, `l` (city), `st` (state or province), `postalCode`, and `co` (country).
+2. In the LDAP gateway user type's **Map Attributes** section, map those AD values to PingOne address fields. For an existing PingOne user, enable **Update PingOne user attributes as users sign on** and save, then sign in again to refresh the record.
+3. In **North Bank Web CIAM → Resources**, allow the OIDC **address** scope. If the app overrides its OIDC attribute mapping, make sure it returns the standard `address` claim.
+4. Check the user's PingOne directory address, then sign out and sign in again. If the field is still empty, inspect the UserInfo `address` claim. The page does not read AD directly.
 
 ## Authentication design
 
@@ -84,4 +102,3 @@ This is a client-side identity demonstration. A real banking system needs server
 Test valid AD login, bad AD password, MFA cancel/deny, gateway outage, redirect mismatch, logout, and expiry. Verify the correct PingOne policy is assigned to the app. If an existing SSO session skips a challenge, inspect the policy and session settings before drawing conclusions about MFA.
 
 Official references: [PingOne SPA configuration](https://developer.pingidentity.com/pingone-api/platform/applications/applications-1/create-application-oidc-protocol---single-page-app.html), [LDAP gateway setup](https://docs.pingidentity.com/pingone/integrations/p1_gateways_overview.html), [LDAP user type and password authority](https://docs.pingidentity.com/pingone/integrations/p1_add_a_user_type.html), and [gateway authentication policy](https://docs.pingidentity.com/pingone/integrations/p1_create_auth_policy_using_the_gateway.html).
-
