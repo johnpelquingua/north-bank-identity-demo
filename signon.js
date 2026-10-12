@@ -7,6 +7,7 @@ const environmentId = '22f37616-5cf6-47ee-8111-f0c870cbfa8f';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 let currentFlow;
 let currentFlowUrl;
+let inlineFlowId;
 let pollTimer;
 let busy = false;
 
@@ -23,6 +24,17 @@ function signonRequest(query) {
     throw Error('This sign-in link is invalid. Start again.');
   }
   return flowEndpoint(id);
+}
+
+function validatedFlowEndpoint(flow) {
+  if (flow?.environment?.id !== environmentId) throw Error('PingOne returned a sign-in flow for another environment.');
+  return flowEndpoint(flow.id);
+}
+
+function beginFlow(flow) {
+  currentFlowUrl = validatedFlowEndpoint(flow);
+  inlineFlowId = flow.id;
+  renderFlow(flow);
 }
 
 function actionEndpoint(flow, action, expectedUrl) {
@@ -118,7 +130,11 @@ function renderFlow(flow) {
       break;
     case 'COMPLETED':
       status.textContent = 'Completing sign-in…';
-      location.assign(resumeEndpoint(flow, new URLSearchParams(location.search).get('flowId')));
+      if (inlineFlowId) completeInlineFlow(flow).catch(error => {
+        showError(error.message);
+        restart.hidden = false;
+      });
+      else location.assign(resumeEndpoint(flow, new URLSearchParams(location.search).get('flowId')));
       break;
     case 'FAILED':
     case 'PUSH_CONFIRMATION_TIMED_OUT':
@@ -151,6 +167,21 @@ async function requestFlow(url, options = {}) {
   return response.json();
 }
 
+async function completeInlineFlow(flow) {
+  const result = await requestFlow(resumeEndpoint(flow, inlineFlowId), {
+    headers: { 'X-Requested-With': 'ping-sdk' }
+  });
+  const code = result?.authorizeResponse?.code;
+  if (typeof code !== 'string' || !code || code.length > 2048) {
+    throw Error('PingOne did not return a valid sign-in code.');
+  }
+  const pending = JSON.parse(sessionStorage.getItem('north.pending') || 'null');
+  if (pending?.mode !== 'flow') throw Error('Sign-in request expired. Start again.');
+  history.replaceState({}, '', new URL(`?code=${encodeURIComponent(code)}&state=${encodeURIComponent(pending.state)}`, location.href));
+  await callback();
+  render();
+}
+
 async function refreshFlow() {
   try {
     renderFlow(await requestFlow(currentFlowUrl));
@@ -181,12 +212,15 @@ async function submitFlow(action, mediaType, payload) {
 }
 
 async function boot() {
-  const query = new URLSearchParams(location.search);
-  currentFlowUrl = signonRequest(query);
-  if (!currentFlowUrl) {
-    location.replace(new URL('./', location.href).href);
+  if (location.pathname.endsWith('/signon.html')) {
+    const home = new URL('./', location.href);
+    home.search = location.search;
+    location.replace(home.href);
     return;
   }
+  const query = new URLSearchParams(location.search);
+  if (!document.querySelector('#credentials')) return;
+  if (query.has('flowId')) currentFlowUrl = signonRequest(query);
   document.querySelector('#credentials').addEventListener('submit', event => {
     event.preventDefault();
     const password = document.querySelector('#password');
@@ -205,7 +239,7 @@ async function boot() {
     event.preventDefault();
     submitFlow('device.select', 'device.select', { device: { id: document.querySelector('#device').value } });
   });
-  renderFlow(await requestFlow(currentFlowUrl));
+  if (currentFlowUrl) renderFlow(await requestFlow(currentFlowUrl));
 }
 
 if (typeof document !== 'undefined') {
@@ -216,5 +250,5 @@ if (typeof document !== 'undefined') {
   });
 }
 
-if (typeof module !== 'undefined') module.exports = { flowEndpoint, signonRequest, actionEndpoint, resumeEndpoint };
+if (typeof module !== 'undefined') module.exports = { flowEndpoint, signonRequest, validatedFlowEndpoint, actionEndpoint, resumeEndpoint };
 
