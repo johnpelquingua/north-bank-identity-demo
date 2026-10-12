@@ -15,6 +15,16 @@ function flowEndpoint(id) {
   return new URL(`/${environmentId}/flows/${id}`, issuer).href;
 }
 
+function signonRequest(query) {
+  const id = query.get('flowId');
+  if (!id) return null;
+  const requestedEnvironment = query.get('environmentId');
+  if (requestedEnvironment && requestedEnvironment !== environmentId) {
+    throw Error('This sign-in link is invalid. Start again.');
+  }
+  return flowEndpoint(id);
+}
+
 function actionEndpoint(flow, action, expectedUrl) {
   const href = flow?._links?.[action]?.href;
   if (href !== expectedUrl) throw Error('PingOne returned an unexpected sign-in action.');
@@ -172,11 +182,11 @@ async function submitFlow(action, mediaType, payload) {
 
 async function boot() {
   const query = new URLSearchParams(location.search);
-  const id = query.get('flowId');
-  if (query.get('environmentId') !== environmentId) {
-    throw Error('This sign-in request is for a different environment.');
+  currentFlowUrl = signonRequest(query);
+  if (!currentFlowUrl) {
+    location.replace(new URL('./', location.href).href);
+    return;
   }
-  currentFlowUrl = flowEndpoint(id);
   document.querySelector('#credentials').addEventListener('submit', event => {
     event.preventDefault();
     const password = document.querySelector('#password');
@@ -206,5 +216,5 @@ if (typeof document !== 'undefined') {
   });
 }
 
-if (typeof module !== 'undefined') module.exports = { flowEndpoint, actionEndpoint, resumeEndpoint };
+if (typeof module !== 'undefined') module.exports = { flowEndpoint, signonRequest, actionEndpoint, resumeEndpoint };
 
