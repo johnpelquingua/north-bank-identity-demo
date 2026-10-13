@@ -115,7 +115,7 @@ The website is already configured with the public URL of the North Bank Supabase
 3. Check the function's logs for deployment errors. The Supabase service key must remain inside the Edge Function environment; do not add it to GitHub Pages or send it to customers. The function uses Supabase's injected `SUPABASE_SECRET_KEYS` or legacy `SUPABASE_SERVICE_ROLE_KEY` environment value.
 4. Sign in as two different AD users in separate browsers. Copy User A's 10-digit sample account number from Overview. From User B's Overview, transfer a small amount to that number. Refresh both users' transaction pages; the same transfer should appear as outgoing for B and incoming for A, with both balances updated. The account number can be shared for this test, but do not share passwords or tokens.
 
-Transfers are capped at PHP 1,000,000 each, cannot overdraw an account, and use a request ID so retrying the same request does not debit twice. The history shows the most recent 100 transfers. The savings and spending cards remain illustrations. If the Edge Function is not deployed yet, the signed-in app shows a transfer service error and will not create a misleading browser-only transfer.
+Transfers are capped at PHP 1,000,000 each, cannot overdraw an account, and use a request ID so retrying the same request does not debit twice. The history shows the most recent 100 transfers. The Statements page filters and exports only those available transfers by Philippine calendar date; it does not claim to provide older or complete bank statements. If the Edge Function is not deployed yet, the signed-in app shows a transfer service error and will not create a misleading browser-only transfer.
 
 ## Add Recognize face verification to transfers
 
@@ -164,4 +164,3 @@ The function verifies Recognize's ES256 or RS256 signature against the tenant's 
 Test valid AD login, bad AD password, MFA cancel/deny, gateway outage, redirect mismatch, logout, and expiry. Verify the correct PingOne policy is assigned to the app. If an existing SSO session skips a challenge, inspect the policy and session settings before drawing conclusions about MFA.
 
 Official references: [PingOne SPA configuration](https://developer.pingidentity.com/pingone-api/platform/applications/applications-1/create-application-oidc-protocol---single-page-app.html), [LDAP gateway setup](https://docs.pingidentity.com/pingone/integrations/p1_gateways_overview.html), [LDAP user type and password authority](https://docs.pingidentity.com/pingone/integrations/p1_add_a_user_type.html), and [gateway authentication policy](https://docs.pingidentity.com/pingone/integrations/p1_create_auth_policy_using_the_gateway.html).
-
