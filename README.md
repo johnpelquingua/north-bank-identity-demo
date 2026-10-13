@@ -117,6 +117,32 @@ The website is already configured with the public URL of the North Bank Supabase
 
 Transfers are capped at PHP 1,000,000 each, cannot overdraw an account, and use a request ID so retrying the same request does not debit twice. The history shows the most recent 100 transfers. The savings and spending cards remain illustrations. If the Edge Function is not deployed yet, the signed-in app shows a transfer service error and will not create a misleading browser-only transfer.
 
+## Add Recognize face verification to transfers
+
+This integration is prepared for the North Bank **sandbox** and is inactive until its server settings and database update are deployed. It applies to fictional transfers only. The rule is enforced in PostgreSQL, after locking the sender account: a transfer over PHP 20,000 requires a face check; a PHP 20,000 transfer requires one if that sender already sent PHP 20,000 or more in the previous 10 minutes; smaller transfers do not require one. The browser cannot declare a face check successful. The Edge Function verifies a recent Recognize-signed token containing the exact sender, recipient, amount, and request ID. The request ID also prevents a retry from debiting twice.
+
+Each customer enrolls their face once using Recognize, then authenticates for the transfer. Enrollment alone does not submit a transfer. North Bank uses that customer's PingOne subject as the Recognize username. Recognize's first-factor user authorization must be enabled so a customer cannot enroll under another person's username.
+
+The public sandbox configuration found in **Recognize → Access Control** is:
+
+| Setting | Value |
+| --- | --- |
+| Customer name | `netpoleons_asia` |
+| Authentication Service | `https://authentication-service-sandbox.eks.core-production.keyless.technology/` |
+| Operations Service public JWKS | `https://operations-service-sandbox.eks.core-production.keyless.technology/customers/netpoleons_asia/.well-known/jwks.json` |
+
+Opening the root of either service in a browser returns an error; the SDK calls its own service routes. The JWKS path above returns a `keys` array and is public. The dashboard's Mobile API Key and Secret API Keys are not needed by the Web SDK and must never be placed in this repository or in the web page.
+
+### Finish the server setup
+
+1. Generate a signing key locally with `node scripts/create-recognize-key.mjs`. Put the printed `RECOGNIZE_AUTH_PRIVATE_JWK` and `RECOGNIZE_AUTH_KEY_ID` values into **Supabase → Edge Functions → Secrets**. Keep the private JWK out of GitHub and messages.
+2. In the same Supabase Secrets area add `RECOGNIZE_CUSTOMER_NAME=netpoleons_asia`, `RECOGNIZE_AUTH_SERVICE_URL=https://authentication-service-sandbox.eks.core-production.keyless.technology/`, and `RECOGNIZE_JWKS_URL=https://operations-service-sandbox.eks.core-production.keyless.technology/customers/netpoleons_asia/.well-known/jwks.json`.
+3. Ask the PingOne Recognize/Keyless team to set **User Authorization Type** to `RemoteJWKSet` and **User Authorization JWKs URI** to `https://uxjyitgzrtxgftcpzoxk.supabase.co/functions/v1/bank-demo?jwks=1` for the `netpoleons_asia` sandbox tenant. Ping's documentation says only its staff can change this customer setting. After deployment, visiting that URI should show a public `keys` array, never a private key.
+4. During a short transfer maintenance window, run `supabase/migrations/202610130002_recognize_step_up.sql` in the Supabase SQL Editor and deploy **both** `supabase/functions/bank-demo/index.mjs` and `supabase/functions/bank-demo/recognize.mjs` to the existing `bank-demo` function. Keep **Verify JWT with legacy secret** off; the function verifies PingOne tokens itself. The migration removes the old transfer RPC signature so the old function cannot bypass the new rule. Transfers will pause between these two actions.
+5. After the Recognize team confirms the user-authorization setting, set `RECOGNIZE_ENABLED=true` in Supabase Secrets. Test with two AD users: an amount below PHP 20,000, a first PHP 20,000, a second PHP 20,000 within 10 minutes, and any amount over PHP 20,000. First-time face users choose **Set up face verification** and then complete a separate verification. Returning users choose **Verify my face**. A canceled or failed face check must leave balances unchanged.
+
+The function verifies Recognize's ES256 or RS256 signature against the tenant's public keys and binds the signed transaction data to the transfer. It does not upload a selfie or store a face image in Supabase. This remains a fictional banking demo, not a production payment system.
+
 ## Project files
 
 | Path | Purpose |
