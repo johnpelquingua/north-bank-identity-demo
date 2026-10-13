@@ -8,7 +8,7 @@ App URL after GitHub Pages deployment: https://johnpelquingua.github.io/north-ba
 
 The main North Bank page shows the AD username and password fields immediately. In the background it starts a PingOne `pi.flow` authorization request with PKCE. When PingOne returns a short-lived flow, the Sign in button becomes available. The browser sends entered credentials directly to PingOne; the assigned policy can authenticate against AD through the LDAP gateway and enforce MFA. The password is not stored in browser storage or sent to GitHub Pages. After login, the app reads PingOne UserInfo to populate the profile. After logout or an error, a retry link remains available.
 
-No real money or banking API is involved. A successful OIDC login alone does not prove that a fresh MFA challenge occurred; verify policy execution in PingOne authentication logs.
+No real money or payment rails are involved. The fictional transfer service uses a shared Supabase database after the one-time deployment below. A successful OIDC login alone does not prove that a fresh MFA challenge occurred; verify policy execution in PingOne authentication logs.
 
 ## Run locally
 
@@ -22,7 +22,7 @@ Visit `http://localhost:8080/`. For local PingOne testing, register that exact r
 
 ## Deploy with GitHub Pages
 
-In the repository, open **Settings → Pages → Build and deployment** and select **GitHub Actions** as the source. The `Deploy banking app` workflow runs on pushes to `main` or can be started manually from **Actions**. It checks the application and publishes `index.html`, `style.css`, `app.js`, `signon.html`, `signon.css`, and `signon.js`.
+In the repository, open **Settings → Pages → Build and deployment** and select **GitHub Actions** as the source. The `Deploy banking app` workflow runs on pushes to `main` or can be started manually from **Actions**. It checks the application and publishes `index.html`, `style.css`, `app.js`, `banking.js`, `signon.html`, `signon.css`, and `signon.js`.
 
 This repository is public, so GitHub Pages works with GitHub Free. The published app and repository source are visible to anyone.
 
@@ -104,7 +104,18 @@ The browser uses OIDC Authorization Code with S256 PKCE and PingOne's non-redire
 
 The issuer allowlist covers several standard PingOne regional hosts. If your tenant uses another supported host, review and update `validateIssuer()` and endpoint checks before testing. The code expects RS256; configure the application accordingly. The user session ends at ID token expiry; there is no refresh-token flow.
 
-This is a client-side identity demonstration. A real banking system needs server-side token validation, authorization for every operation, a real ledger, and transaction-specific controls. The **Simulate transfer** action does not invoke PingOne MFA step-up or a payment service.
+The shared transfer feature is a fictional ledger for testing. The Edge Function validates each PingOne token and the database changes both sample balances in one transaction. It does not invoke PingOne MFA step-up or a payment service. It is not suitable for real funds: production would need an API-specific access token, stronger transaction authorization, fraud controls, and an audited ledger.
+
+## Enable shared sample transfers in Supabase
+
+The website is already configured with the public URL of the North Bank Supabase project. Customers never enter this URL or a key. Complete these one-time deployment steps before testing transfers:
+
+1. In the Supabase project dashboard, open **SQL Editor**. Paste and run the full contents of `supabase/migrations/202610130001_bank_demo.sql`. It creates private sample accounts, the transfer table, and database functions. Each PingOne user gets a separate fictional PHP 100,000 opening balance on first access.
+2. Deploy `supabase/functions/bank-demo/index.mjs` as the `bank-demo` Edge Function. With the Supabase CLI from the repository root, run `supabase login`, `supabase link --project-ref uxjyitgzrtxgftcpzoxk`, then `supabase functions deploy bank-demo --no-verify-jwt`. The included `supabase/config.toml` points to the function entrypoint. The browser sends a PingOne token, so Supabase's own JWT check must be disabled; the function verifies the PingOne signature, issuer, client ID, and expiration itself.
+3. Check the function's logs for deployment errors. The Supabase service key must remain inside the Edge Function environment; do not add it to GitHub Pages or send it to customers. The function uses Supabase's injected `SUPABASE_SECRET_KEYS` or legacy `SUPABASE_SERVICE_ROLE_KEY` environment value.
+4. Sign in as two different AD users in separate browsers. Copy User A's 10-digit sample account number from Overview. From User B's Overview, transfer a small amount to that number. Refresh both users' transaction pages; the same transfer should appear as outgoing for B and incoming for A, with both balances updated. The account number can be shared for this test, but do not share passwords or tokens.
+
+Transfers are capped at PHP 1,000,000 each, cannot overdraw an account, and use a request ID so retrying the same request does not debit twice. The history shows the most recent 100 transfers. The savings and spending cards remain illustrations. If the Edge Function is not deployed yet, the signed-in app shows a transfer service error and will not create a misleading browser-only transfer.
 
 ## Project files
 
@@ -113,6 +124,9 @@ This is a client-side identity demonstration. A real banking system needs server
 | `index.html` | Accessible page shell |
 | `style.css` | Responsive interface |
 | `app.js` | UI, sample data, PingOne OIDC flow |
+| `banking.js` | Shared fictional accounts, transfers, and history UI |
+| `supabase/migrations/202610130001_bank_demo.sql` | Atomic fictional balance and transfer logic |
+| `supabase/functions/bank-demo/index.mjs` | PingOne token verification and protected database API |
 | `signon.html`, `signon.css`, `signon.js` | Main-page PingOne flow form and legacy sign-on URL handler |
 | `tests/auth.test.cjs` | Token, issuer, and CSV security checks |
 | `.github/workflows/checks.yml` | CI syntax and test checks |
