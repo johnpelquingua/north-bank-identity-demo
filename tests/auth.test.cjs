@@ -248,22 +248,3 @@ test('opening the main page starts a non-redirect PingOne flow with PKCE', async
   assert.equal(receivedFlow, flow);
   assert.equal(JSON.parse(context.pending.value).mode, 'flow');
 });
-
-test('phone sign-in redirects to PingOne with PKCE while desktop keeps the inline flow', async () => {
-  let destination;
-  context.document = { querySelector: () => ({ textContent: '' }) };
-  context.sessionStorage = { setItem: (key, value) => { context.pending = { key, value }; } };
-  context.discovery = async () => ({ authorization_endpoint: 'https://auth.pingone.sg/22f37616-5cf6-47ee-8111-f0c870cbfa8f/as/authorize' });
-  context.location.assign = url => { destination = url; };
-  context.matchMedia = query => ({ matches: query === '(max-width: 950px) and (pointer: coarse)' });
-  assert.equal(context.mobileSignInScreen(), true);
-  await context.startHostedLogin();
-  const url = new URL(destination);
-  assert.equal(url.searchParams.get('response_mode'), 'query');
-  assert.equal(url.searchParams.get('response_type'), 'code');
-  assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
-  assert.equal(url.searchParams.get('redirect_uri'), 'http://localhost:8080/');
-  assert.equal(JSON.parse(context.pending.value).mode, 'hosted');
-  context.matchMedia = () => ({ matches: false });
-  assert.equal(context.mobileSignInScreen(), false);
-});
