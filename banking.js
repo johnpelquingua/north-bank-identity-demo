@@ -34,7 +34,7 @@ function bankTransaction(t){
   return {
     name:String(t.counterparty_name||'Customer'),
     detail:`Transfer · ${t.direction==='INCOMING'?'Incoming':'Outgoing'} · ${String(t.counterparty_account_number||'')}`,
-    date:new Date(t.created_at).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}),
+    date:new Date(t.created_at).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric',timeZone:'Asia/Manila'}),
     amount:(t.direction==='INCOMING'?1:-1)*Number(t.amount_cents)/100,
     icon:t.direction==='INCOMING'?'↙':'↗'
   };
