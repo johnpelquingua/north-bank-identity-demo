@@ -16,6 +16,9 @@ async function bankRequest(method,body){
 }
 
 let recognizeSdkPromise;
+function recognizeEnrollmentKey(){return 'north.recognize.enrolled.'+encodeURIComponent(session?.user?.sub||'')}
+function hasRecognizeEnrollment(){try{return localStorage.getItem(recognizeEnrollmentKey())==='1'}catch{return false}}
+function rememberRecognizeEnrollment(){try{localStorage.setItem(recognizeEnrollmentKey(),'1')}catch{}}
 function loadRecognizeSdk(){
   if(recognizeSdkPromise)return recognizeSdkPromise;
   recognizeSdkPromise=new Promise((resolve,reject)=>{
@@ -127,7 +130,9 @@ transfer=function(){
   if(session?.mode!=='pingone')return originalBankTransfer();
   if(bankStatus!=='ready'){toast(bankError||'Your account is loading.');return}
   const dialog=document.createElement('dialog');
-  dialog.innerHTML=`<h2>Transfer money</h2><p class="small muted">Enter another North Bank account number. Demo transfer; no real money moves.</p><form id="transfer-form"><label for="recipient">Recipient account number</label><input id="recipient" name="recipient" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" required><label for="amount">Amount (PHP)</label><input id="amount" name="amount" inputmode="decimal" pattern="[0-9]+(\\.[0-9]{1,2})?" required><p class="error" id="bank-transfer-error" role="alert" hidden></p><div class="dialog-actions"><button type="button" id="cancel-transfer" class="btn secondary">Cancel</button><button type="submit" class="btn">Transfer</button></div></form>`;
+  dialog.className='bank-transfer-dialog';
+  dialog.setAttribute('aria-labelledby','transfer-title');
+  dialog.innerHTML=`<div class="transfer-header"><span class="transfer-eyebrow">NORTH BANK TRANSFERS</span><h2 id="transfer-title">Transfer money</h2><p>Send to another North Bank account.</p></div><form id="transfer-form" class="transfer-form"><div class="transfer-field"><label for="recipient">Recipient account number</label><input id="recipient" name="recipient" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" autocomplete="off" placeholder="10-digit account number" required></div><div class="transfer-field"><label for="amount">Amount</label><div class="transfer-amount-input"><span aria-hidden="true">₱</span><input id="amount" name="amount" inputmode="decimal" pattern="[0-9]+(\\.[0-9]{1,2})?" placeholder="0.00" aria-label="Amount in Philippine pesos" required></div></div><p class="transfer-hint">Some transfers may require face verification before they are sent.</p><p class="error transfer-error" id="bank-transfer-error" role="alert" hidden></p><div class="transfer-footer"><button type="button" id="cancel-transfer" class="btn secondary">Cancel</button><button type="submit" class="btn">Send transfer</button></div></form>`;
   document.body.append(dialog);dialog.addEventListener('close',()=>dialog.remove());dialog.querySelector('#cancel-transfer').onclick=()=>dialog.close();
   let requestId=crypto.randomUUID();
   dialog.querySelectorAll('input').forEach(input=>input.oninput=()=>{requestId=crypto.randomUUID()});
@@ -135,19 +140,20 @@ transfer=function(){
     const form=dialog.querySelector('#transfer-form');
     form.hidden=true;
     const panel=document.createElement('section');
-    panel.innerHTML='<h3>Confirm this transfer</h3><p class="small">Use your camera to verify your identity before the transfer is sent.</p><p class="small" id="recognize-message" role="status"></p><div id="recognize-options" class="dialog-actions"><button type="button" class="btn" id="recognize-verify">Verify my face</button><button type="button" class="btn secondary" id="recognize-enroll">First time? Set up face verification</button></div><div id="recognize-camera"></div><p class="error" id="recognize-error" role="alert" hidden></p><div class="dialog-actions"><button type="button" class="btn secondary" id="recognize-cancel">Cancel transfer</button></div>';
+    panel.className='recognize-panel';
+    panel.innerHTML='<div class="transfer-header"><span class="transfer-eyebrow">ONE MORE SECURITY STEP</span><h3>Verify this transfer</h3><p>Confirm it is you before the transfer is sent.</p></div><div class="transfer-summary"><div><span>Amount</span><strong id="recognize-amount"></strong></div><div><span>To account</span><strong id="recognize-recipient"></strong></div></div><p class="recognize-prompt">Face verification</p><div id="recognize-options" class="recognize-options"><button type="button" class="recognize-choice" id="recognize-verify"><span class="recognize-choice-icon" aria-hidden="true">◉</span><span><strong>Verify my face</strong><small>Use your camera to confirm this transfer.</small></span><span class="recognize-choice-arrow" aria-hidden="true">→</span></button><button type="button" class="recognize-setup-link" id="recognize-enroll">First time using face verification? Set it up</button></div><p class="recognize-status" id="recognize-message" role="status"></p><div id="recognize-camera"></div><p class="error transfer-error" id="recognize-error" role="alert" hidden></p><div class="transfer-footer recognize-footer"><button type="button" class="btn secondary" id="recognize-cancel">Cancel transfer</button></div>';
     dialog.append(panel);
-    const summary=document.createElement('p');
-    summary.className='small';
-    summary.textContent=money(payload.amountCents/100)+' to account '+payload.recipientAccountNumber;
-    panel.querySelector('h3').after(summary);
+    panel.querySelector('#recognize-amount').textContent=money(payload.amountCents/100);
+    panel.querySelector('#recognize-recipient').textContent=payload.recipientAccountNumber;
+    const enrollOption=panel.querySelector('#recognize-enroll');
+    enrollOption.hidden=hasRecognizeEnrollment();
     panel.querySelector('#recognize-cancel').onclick=()=>dialog.close();
     const message=panel.querySelector('#recognize-message'),failure=panel.querySelector('#recognize-error');
     const camera=panel.querySelector('#recognize-camera'),options=panel.querySelector('#recognize-options');
     let challenge=firstChallenge,busy=false;
     async function start(mode){
       if(busy||!dialog.open)return;
-      busy=true;failure.hidden=true;options.hidden=true;message.textContent='Opening camera…';
+      busy=true;failure.hidden=true;options.hidden=true;message.textContent='Opening camera…';panel.classList.add('recognize-busy');
       try{
         const refreshed=await bankRequest('POST',{...payload,action:'recognize-challenge'});
         challenge=refreshed.recognize;
@@ -172,25 +178,28 @@ transfer=function(){
         component.addEventListener('error',event=>{
           if(!dialog.open)return;
           failure.textContent=mode==='enroll'?'Face setup did not finish. Please try again.':'Face verification did not finish. Please try again.';
-          failure.hidden=false;options.hidden=false;camera.replaceChildren();busy=false;
+          if(mode==='auth')enrollOption.hidden=false;
+          failure.hidden=false;options.hidden=false;camera.replaceChildren();busy=false;panel.classList.remove('recognize-busy');message.textContent='Choose an option to try again.';
         },{once:true});
         component.addEventListener('success',async event=>{
           if(!dialog.open)return;
           const proof=event.detail?.jwt;
           camera.replaceChildren();
           if(mode==='enroll'){
+            rememberRecognizeEnrollment();enrollOption.hidden=true;
             message.textContent='Face setup complete. Now confirm this transfer with a new face check.';
             busy=false;
             await start('auth');
             return;
           }
-          if(typeof proof!=='string'){failure.textContent='Face verification did not return a confirmation. Please try again.';failure.hidden=false;options.hidden=false;busy=false;return}
+          if(typeof proof!=='string'){failure.textContent='Face verification did not return a confirmation. Please try again.';failure.hidden=false;options.hidden=false;busy=false;panel.classList.remove('recognize-busy');return}
+          rememberRecognizeEnrollment();enrollOption.hidden=true;
           message.textContent='Confirming transfer…';
           try{const data=await bankRequest('POST',{...payload,recognizeJwt:proof});if(!dialog.open)return;applyBankData(data);dialog.close();render();toast('Transfer completed.')}
-          catch(error){failure.textContent=error.message;failure.hidden=false;options.hidden=false;busy=false}
+          catch(error){failure.textContent=error.message;failure.hidden=false;options.hidden=false;busy=false;panel.classList.remove('recognize-busy')}
         },{once:true});
-        camera.append(component);message.textContent=mode==='enroll'?'Set up face verification with your camera.':'Follow the camera instructions to confirm your transfer.';
-      }catch(error){failure.textContent=error.message;failure.hidden=false;options.hidden=false;busy=false}
+        camera.append(component);panel.classList.remove('recognize-busy');message.textContent=mode==='enroll'?'Set up face verification with your camera.':'Follow the camera instructions to confirm your transfer.';
+      }catch(error){failure.textContent=error.message;failure.hidden=false;options.hidden=false;busy=false;panel.classList.remove('recognize-busy');message.textContent='Choose an option to try again.'}
     }
     panel.querySelector('#recognize-verify').onclick=()=>start('auth');
     panel.querySelector('#recognize-enroll').onclick=()=>start('enroll');
@@ -201,11 +210,11 @@ transfer=function(){
     const match=/^(\d+)(?:\.(\d{1,2}))?$/.exec(amountText);
     const amountCents=match?Number(match[1])*100+Number((match[2]||'').padEnd(2,'0')):NaN;
     if(!/^\d{10}$/.test(recipientAccountNumber)||!Number.isSafeInteger(amountCents)||amountCents<1||amountCents>100000000||amountCents>bankAccount.balanceCents){errorNode.textContent='Enter a valid account and amount within your available balance.';errorNode.hidden=false;return}
-    submit.disabled=true;errorNode.hidden=true;
+    submit.disabled=true;submit.textContent='Processing…';errorNode.hidden=true;
     const signedIn=session;
     const payload={recipientAccountNumber,amountCents,requestId};
     try{const data=await bankRequest('POST',payload);if(session!==signedIn)return;applyBankData(data);dialog.close();render();toast('Transfer completed. Both account histories have been updated.')}
-    catch(error){if(error.code==='RECOGNIZE_REQUIRED'&&error.recognize){await faceStep(payload,error.recognize);return}errorNode.textContent=error.message;errorNode.hidden=false;submit.disabled=false}
+    catch(error){if(error.code==='RECOGNIZE_REQUIRED'&&error.recognize){await faceStep(payload,error.recognize);return}errorNode.textContent=error.message;errorNode.hidden=false;submit.disabled=false;submit.textContent='Send transfer'}
   };
   dialog.showModal();
 };
