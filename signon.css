@@ -1,2 +1,3 @@
 .login-inner form{margin-top:24px}.login-inner form label{margin-top:16px}.login-inner form input,.login-inner form select{margin-bottom:15px}.login-inner form .btn{margin-top:5px}.signon-help{margin-top:24px}#restart{display:inline-block;margin-top:12px}[hidden]{display:none!important}
+.totp-qr{width:min(240px,100%);aspect-ratio:1;margin:20px auto 12px;padding:10px;background:#fff;border:1px solid #d8e0d6;border-radius:12px;display:grid;place-items:center}.totp-qr svg{display:block;width:100%;height:100%}.totp-manual{margin:0 0 16px}.totp-manual summary{cursor:pointer;text-decoration:underline;text-underline-offset:3px}.totp-manual .note{margin-top:12px}.totp-manual code{overflow-wrap:anywhere}
 
