@@ -2,6 +2,8 @@
 
 A responsive, fictional banking interface for testing **PingOne sign-in backed by Microsoft Active Directory and PingOne MFA**. It includes a login page, account overview, transaction history, profile, simulated transfers, CSV export, and an in-app setup guide.
 
+For a complete rebuild, use the [step by step setup guide](docs/NORTH_BANK_SETUP_RUNBOOK.md). An editable [Word edition](docs/North%20Bank%20Complete%20Setup%20Guide.docx) and a [PDF edition](docs/North%20Bank%20Complete%20Setup%20Guide.pdf) are also available.
+
 App URL after GitHub Pages deployment: https://johnpelquingua.github.io/north-bank-identity-demo/
 
 ## Sign in
@@ -75,6 +77,12 @@ The screenshot's **Mobile Applications** setting says no native mobile applicati
 
 1. Under the application's **Configuration → CORS Settings**, select **Allow specific origins** and allow `https://johnpelquingua.github.io`. Keep Authorization Code, PKCE S256, and the existing redirect URI. The Signon URL can remain set to `signon.html`; the inline `pi.flow` path does not navigate there.
 2. Open the main app in a private browser window. Its AD credential form appears immediately while the PingOne flow starts in the background. Test a valid and invalid AD login and the assigned MFA steps. The form currently handles username/password, OTP, device choice, and push approval. Additional policy steps must be implemented before those steps can be used on this page.
+
+### Phone-sized sign-in
+
+The inline sign-in sends PingOne flow requests from the GitHub Pages domain. On some phones, the browser does not send PingOne's `ST` session cookie on these cross-site requests, so selecting any MFA method fails with `INVALID_DATA / INVALID_VALUE` and `Rejected field: ST`. The phone-sized, touch-screen version uses a top-level authorization redirect to PingOne's hosted sign-in page instead; desktop keeps the inline North Bank form. The authorization code still returns to the North Bank redirect URI and uses PKCE.
+
+Before publishing the mobile redirect version, open **PingOne → Applications → Applications → North Bank Web CIAM → Overview → Edit** and clear the **Signon URL** field, then save. The field is optional. Keep the existing **Redirect URI**, CORS origins, scopes, and authentication policy. With no custom Signon URL, PingOne sends redirect-mode sign-ins to its hosted page; `pi.flow` requests used by the desktop form still return a flow directly. Test Email or TOTP on the phone first. The current FIDO policy uses the GitHub Pages relying-party domain, so mobile passkey sign-in on the PingOne-hosted origin may require a separate FIDO policy or application configuration.
 
 Do not put a worker client secret, LDAP bind password, or AD password in repository files or app configuration.
 
