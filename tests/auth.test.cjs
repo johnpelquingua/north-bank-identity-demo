@@ -108,6 +108,34 @@ test('MFA device requests stay in the configured PingOne environment', async () 
   evaluate('session=null');
 });
 
+test('profile opens MFA management and preference changes use PingOne device order', async () => {
+  const userId = 'fa15fe35-b52a-4240-a22f-59274a2fa72a';
+  const first = '11111111-1111-4111-8111-111111111111';
+  const second = '22222222-2222-4222-8222-222222222222';
+  evaluate(`session={mode:'pingone',user:{sub:'${userId}',email:'user@example.com'},accessToken:'test-token',mfaReady:true}`);
+  assert.match(evaluate('profile()'), /Manage sign-in methods/);
+  const devices = [{ id: first, type: 'TOTP', status: 'ACTIVE', nickname: '<unsafe>' }, { id: second, type: 'FIDO2', status: 'ACTIVE' }];
+  let reorder;
+  context.mfaApi = async (url, options) => {
+    if (options) { reorder = { url, options }; return {}; }
+    return { order: [{ id: first }, { id: second }], _embedded: { devices } };
+  };
+  context.render = () => {};
+  context.toast = () => {};
+  context.document = { querySelectorAll: () => [] };
+  await context.loadMfaState();
+  const html = evaluate('mfaPage()');
+  assert.match(html, /Preferred/);
+  assert.match(html, /&lt;unsafe&gt;/);
+  assert.doesNotMatch(html, /<unsafe>/);
+  await context.preferMfaDevice(second);
+  assert.equal(reorder.url, `https://api.pingone.sg/v1/environments/22f37616-5cf6-47ee-8111-f0c870cbfa8f/users/${userId}/devices`);
+  assert.equal(reorder.options.headers['Content-Type'], 'application/vnd.pingidentity.devices.reorder+json');
+  assert.deepEqual(JSON.parse(reorder.options.body), { order: [{ id: second }, { id: first }] });
+  context.document = undefined;
+  evaluate('session=null');
+});
+
 test('FIDO2 enrollment options retain PingOne challenge bytes', () => {
   const options = evaluate(`fidoOptions(JSON.stringify({challenge:[-1,2],user:{id:[-128,3]},excludeCredentials:[{type:'public-key',id:[-2,4]}]}))`);
   assert.deepEqual([...options.challenge], [255, 2]);
@@ -149,4 +177,3 @@ test('opening the main page starts a non-redirect PingOne flow with PKCE', async
   assert.equal(receivedFlow, flow);
   assert.equal(JSON.parse(context.pending.value).mode, 'flow');
 });
-
