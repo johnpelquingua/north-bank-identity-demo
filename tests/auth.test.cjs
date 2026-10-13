@@ -151,11 +151,58 @@ test('email enrollment accepts a method PingOne activates immediately', async ()
   const userId = 'fa15fe35-b52a-4240-a22f-59274a2fa72a';
   evaluate(`session={mode:'pingone',user:{sub:'${userId}',email:'user@example.com'},accessToken:'test-token',mfaReady:true}`);
   context.document = { querySelector: () => ({ disabled: false }) };
-  context.mfaApi = async () => ({ id: '11111111-1111-4111-8111-111111111111', status: 'ACTIVE' });
+  let request;
+  context.mfaApi = async (url, options) => { request = options; return { id: '11111111-1111-4111-8111-111111111111', status: 'ACTIVE' }; };
   let completed = false;
   context.finishMfaEnrollment = async () => { completed = true; };
   await context.createEmailAuthenticator();
   assert.equal(completed, true);
+  assert.deepEqual(JSON.parse(request.body), { type: 'EMAIL', email: 'user@example.com' });
+  context.document = undefined;
+  evaluate('session=null');
+});
+
+test('profile enrollment stays in the app while first enrollment uses the sign-in layout', () => {
+  const main = { innerHTML: '' };
+  const isolated = vm.createContext({
+    URL, URLSearchParams, atob, btoa, localStorage: { getItem: () => null },
+    location: { href: 'https://example.com/', origin: 'https://example.com', hostname: 'example.com' },
+    document: { querySelector: selector => selector === '#main' ? main : null },
+  });
+  const noEntrypoint = source.slice(0, source.indexOf("if(typeof document!=='undefined'){const query="));
+  vm.runInContext(noEntrypoint.replace("const app=document.querySelector('#app');", "const app={innerHTML:'BANKING_SHELL'};"), isolated);
+  vm.runInContext("session={mode:'pingone',user:{email:'user@example.com'},mfaReady:true,mfaDevices:[{type:'TOTP',status:'ACTIVE'}]};mfaEnrollmentOpen=true;renderEnrollment()", isolated);
+  assert.match(main.innerHTML, /Add a sign-in method/);
+  assert.doesNotMatch(main.innerHTML, /id="mfa-start"/);
+  assert.equal(vm.runInContext('app.innerHTML', isolated), 'BANKING_SHELL');
+  vm.runInContext('mfaEnrollmentOpen=false;renderEnrollment()', isolated);
+  assert.match(vm.runInContext('app.innerHTML', isolated), /class="login"/);
+});
+
+test('FIDO2 enrollment uses the environment policy and this site as the relying party', async () => {
+  const userId = 'fa15fe35-b52a-4240-a22f-59274a2fa72a';
+  evaluate(`session={mode:'pingone',user:{sub:'${userId}'},accessToken:'test-token',mfaReady:true}`);
+  context.document = { querySelector: () => ({ disabled: false }) };
+  context.location.hostname = 'johnpelquingua.github.io';
+  context.navigator = { credentials: { create: async () => ({ id: 'credential' }) } };
+  context.window = { isSecureContext: true };
+  const originalFidoOptions = context.fidoOptions;
+  const originalFidoAttestation = context.fidoAttestation;
+  context.fidoOptions = () => ({ challenge: new Uint8Array([1]) });
+  context.fidoAttestation = () => '{}';
+  let createBody;
+  context.mfaApi = async (url, options) => {
+    if (!url.endsWith('/devices')) return { status: 'ACTIVE' };
+    createBody = JSON.parse(options.body);
+    return { id: '11111111-1111-4111-8111-111111111111', status: 'ACTIVATION_REQUIRED', publicKeyCredentialCreationOptions: '{}' };
+  };
+  let completed = false;
+  context.finishMfaEnrollment = async () => { completed = true; };
+  await context.createFidoAuthenticator();
+  assert.equal(completed, true);
+  assert.deepEqual(createBody, { type: 'FIDO2', rp: { id: 'johnpelquingua.github.io', name: 'North Bank' } });
+  context.fidoOptions = originalFidoOptions;
+  context.fidoAttestation = originalFidoAttestation;
   context.document = undefined;
   evaluate('session=null');
 });
