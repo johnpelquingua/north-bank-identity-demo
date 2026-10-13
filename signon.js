@@ -104,6 +104,7 @@ function ensureMfaControls() {
     clearTimeout(pollTimer);
     clearError();
     document.querySelector('#flow-status').textContent = 'Choose how to verify your sign-in.';
+    change.hidden = true;
     showStep('device-step');
   });
 }
@@ -180,7 +181,7 @@ function renderFlow(flow) {
   restart.hidden = true;
   const deviceCount = populateDevices(flow);
   const canSwitch = deviceCount > 1 && flow._links?.['device.select']?.href === currentFlowUrl;
-  document.querySelector('#change-device').hidden = !canSwitch;
+  document.querySelector('#change-device').hidden = !canSwitch || flow.status === 'DEVICE_SELECTION_REQUIRED';
   switch (flow.status) {
     case 'USERNAME_PASSWORD_REQUIRED':
     case 'PASSWORD_REQUIRED':
@@ -259,10 +260,15 @@ async function requestFlow(url, options = {}) {
     throw Error(`Browser could not reach ${endpoint.hostname}${endpoint.pathname}. Check this request in the browser Network tab.`);
   }
   if (!response.ok) {
+    const failure = await response.json().catch(() => null);
     const error = Error(response.status === 401 || response.status === 400
       ? 'Those credentials or verification details were not accepted. Try again.'
       : 'PingOne could not complete sign-in. Start again.');
     error.status = response.status;
+    error.pingCode = typeof failure?.code === 'string' ? failure.code : '';
+    error.pingDetailCodes = Array.isArray(failure?.details)
+      ? failure.details.map(detail => detail?.code).filter(code => typeof code === 'string') : [];
+    error.pingId = typeof failure?.id === 'string' ? failure.id : '';
     throw error;
   }
   return response.json();
@@ -307,7 +313,14 @@ async function submitFlow(action, mediaType, payload) {
   } catch (error) {
     // A failed credential check can leave the same flow available for retry.
     try { renderFlow(await requestFlow(currentFlowUrl)); } catch { /* Retry uses current state. */ }
-    showError(error.message);
+    if (action === 'device.select' && error.status) {
+      const codes = [error.pingCode, ...(error.pingDetailCodes || [])]
+        .filter(code => /^[A-Z][A-Z0-9_]{0,63}$/.test(code));
+      const reference = uuid.test(error.pingId || '') ? ` Reference: ${error.pingId}.` : '';
+      showError(`PingOne could not select this method (HTTP ${error.status}${codes.length ? `: ${codes.join(' / ')}` : ''}). Try another method or start sign-in again.${reference}`);
+    } else {
+      showError(error.message);
+    }
     setBusy(false);
   }
 }
