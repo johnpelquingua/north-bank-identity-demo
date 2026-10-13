@@ -108,7 +108,7 @@ function renderEnrollment(){
 async function createAuthenticator(){
   const button=document.querySelector('#mfa-start');button.disabled=true;mfaError='';
   try{
-    const device=await mfaApi(mfaDeviceUrl(session.user.sub),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'TOTP',...mfaPolicyOption()})});
+    const device=await mfaApi(mfaDeviceUrl(session.user.sub),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'TOTP'})});
     if(!mfaUuid.test(device.id||'')||device.status!=='ACTIVATION_REQUIRED'||!device.secret||!/^[A-Z2-7]+$/i.test(device.secret))throw Error('PingOne did not return a valid authenticator setup key.');
     mfaDevice={id:device.id,type:'TOTP',secret:device.secret};renderEnrollment();
   }catch(error){mfaError=error.message;renderEnrollment()}
