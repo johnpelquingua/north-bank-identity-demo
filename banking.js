@@ -28,8 +28,9 @@ function applyBankData(data){
 }
 async function loadBanking(){
   if(session?.mode!=='pingone'||!session.mfaReady)return;
-  try{applyBankData(await bankRequest('GET'))}
-  catch(error){bankStatus='error';bankError=error.message;bankAccount=null;transactions=[];balance=0}
+  const signedIn=session;
+  try{const data=await bankRequest('GET');if(session===signedIn)applyBankData(data)}
+  catch(error){if(session===signedIn){bankStatus='error';bankError=error.message;bankAccount=null;transactions=[];balance=0}}
 }
 
 const originalBankCallback=callback;
@@ -76,7 +77,8 @@ transfer=function(){
     const amountCents=match?Number(match[1])*100+Number((match[2]||'').padEnd(2,'0')):NaN;
     if(!/^\d{10}$/.test(recipientAccountNumber)||!Number.isSafeInteger(amountCents)||amountCents<1||amountCents>100000000||amountCents>bankAccount.balanceCents){errorNode.textContent='Enter a valid account and amount within your sample balance.';errorNode.hidden=false;return}
     submit.disabled=true;errorNode.hidden=true;
-    try{applyBankData(await bankRequest('POST',{recipientAccountNumber,amountCents,requestId}));dialog.close();render();toast('Sample transfer completed. Both account histories have been updated.')}
+    const signedIn=session;
+    try{const data=await bankRequest('POST',{recipientAccountNumber,amountCents,requestId});if(session!==signedIn)return;applyBankData(data);dialog.close();render();toast('Sample transfer completed. Both account histories have been updated.')}
     catch(error){errorNode.textContent=error.message;errorNode.hidden=false;submit.disabled=false}
   };
   dialog.showModal();
