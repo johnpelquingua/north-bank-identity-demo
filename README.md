@@ -33,7 +33,7 @@ For PingOne, register these values for this deployment:
 | Redirect URI | `https://johnpelquingua.github.io/north-bank-identity-demo/` |
 | Post-logout redirect URI | `https://johnpelquingua.github.io/north-bank-identity-demo/` |
 | Allowed browser origin | `https://johnpelquingua.github.io` |
-| Signon URL | `https://johnpelquingua.github.io/north-bank-identity-demo/signon.html` |
+| Signon URL | Leave blank for phone sign-in through PingOne's hosted page |
 
 The hosted app is preconfigured with the North Bank PingOne sandbox issuer and public application client ID, so customers do not enter either value. The browser calls PingOne's non-redirect Flows API for sign-in; no server secrets are needed by GitHub Pages.
 
