@@ -113,7 +113,7 @@ function populateDevices(flow) {
   const select = document.querySelector('#device');
   select.replaceChildren();
   for (const device of flow._embedded?.devices || []) {
-    if (!uuid.test(device.id || '')) continue;
+    if (!uuid.test(device.id || '') || device.usableStatus?.status === 'DISABLED') continue;
     const option = document.createElement('option');
     option.value = device.id;
     const label = { TOTP: 'Authenticator app', FIDO2: 'Passkey or security key', MOBILE: 'Mobile app' }[device.type] || device.type;
@@ -206,7 +206,7 @@ function renderFlow(flow) {
       break;
     case 'DEVICE_SELECTION_REQUIRED': {
       actionEndpoint(flow, 'device.select', currentFlowUrl);
-      if (!deviceCount) throw Error('No supported verification device is available.');
+      if (!deviceCount) throw Error('PingOne did not offer an available verification device for this sign-in. Check the MFA policy and device status.');
       showStep('device-step');
       status.textContent = 'Choose how to verify your sign-in.';
       setBusy(false);
@@ -268,6 +268,8 @@ async function requestFlow(url, options = {}) {
     error.pingCode = typeof failure?.code === 'string' ? failure.code : '';
     error.pingDetailCodes = Array.isArray(failure?.details)
       ? failure.details.map(detail => detail?.code).filter(code => typeof code === 'string') : [];
+    error.pingTargets = Array.isArray(failure?.details)
+      ? failure.details.map(detail => detail?.target).filter(target => typeof target === 'string' && /^[a-zA-Z][a-zA-Z0-9_.-]{0,79}$/.test(target)) : [];
     error.pingId = typeof failure?.id === 'string' ? failure.id : '';
     throw error;
   }
@@ -316,8 +318,9 @@ async function submitFlow(action, mediaType, payload) {
     if (action === 'device.select' && error.status) {
       const codes = [error.pingCode, ...(error.pingDetailCodes || [])]
         .filter(code => /^[A-Z][A-Z0-9_]{0,63}$/.test(code));
+      const targets = [...new Set(error.pingTargets || [])];
       const reference = uuid.test(error.pingId || '') ? ` Reference: ${error.pingId}.` : '';
-      showError(`PingOne could not select this method (HTTP ${error.status}${codes.length ? `: ${codes.join(' / ')}` : ''}). Try another method or start sign-in again.${reference}`);
+      showError(`PingOne could not select this method (HTTP ${error.status}${codes.length ? `: ${codes.join(' / ')}` : ''}).${targets.length ? ` Rejected field: ${targets.join(', ')}.` : ''} Start sign-in again.${reference}`);
     } else {
       showError(error.message);
     }
