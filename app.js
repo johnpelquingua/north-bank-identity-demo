@@ -216,7 +216,9 @@ async function createEmailAuthenticator(){
     const email=String(session.user.email||'').trim();
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw Error('Your PingOne profile needs a valid email address for email verification.');
     const device=await mfaApi(mfaDeviceUrl(session.user.sub),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'EMAIL',email,...mfaPolicyOption()})});
-    if(!mfaUuid.test(device.id||'')||device.status!=='ACTIVATION_REQUIRED')throw Error('PingOne did not start email pairing.');
+    if(!mfaUuid.test(device.id||''))throw Error('PingOne did not create an email verification method.');
+    if(device.status==='ACTIVE'){await finishMfaEnrollment();return}
+    if(device.status!=='ACTIVATION_REQUIRED')throw Error('PingOne did not start email pairing.');
     mfaDevice={id:device.id,type:'EMAIL',email};renderEnrollment();
   }catch(error){mfaError=error.message;renderEnrollment()}
 }
