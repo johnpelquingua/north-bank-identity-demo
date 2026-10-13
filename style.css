@@ -42,7 +42,11 @@
 .recognize-choice strong{font-size:14px;line-height:1.35}
 .recognize-choice small{margin-top:3px;color:#63766b;font-size:11px;line-height:1.35}
 .recognize-choice-arrow{color:#508569;font-size:21px}
-.recognize-setup-link{justify-self:start;margin:2px 0 0;padding:9px 2px;border:0;background:transparent;color:#315e45;font-size:12px;font-weight:700;text-align:left;text-decoration:underline;text-underline-offset:3px}
+.recognize-help{margin-top:3px;color:#496858;font-size:12px}
+.recognize-help summary{width:max-content;max-width:100%;padding:7px 2px;color:#315e45;font-size:12px;font-weight:600}
+.recognize-help summary:focus-visible{outline:3px solid #73a889;outline-offset:2px;border-radius:3px}
+.recognize-help p{margin:5px 0 3px;line-height:1.5}
+.recognize-setup-link{margin:2px 0 0;padding:9px 2px;border:0;background:transparent;color:#315e45;font-size:12px;font-weight:700;text-align:left;text-decoration:underline;text-underline-offset:3px}
 .recognize-setup-link:hover{color:#173f36}
 .recognize-setup-link:focus-visible{outline:3px solid #73a889;outline-offset:2px;border-radius:3px}
 .recognize-status{min-height:0;margin:0;color:#496858;font-size:12px;line-height:1.5}
