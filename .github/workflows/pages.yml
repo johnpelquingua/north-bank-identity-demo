@@ -31,6 +31,8 @@ jobs:
         run: |
           mkdir -p _site
           cp index.html style.css app.js signon.html signon.css signon.js _site/
+          cp -R vendor _site/
+          test -f _site/vendor/qrcode.js
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
