@@ -50,6 +50,17 @@ The hosted app is preconfigured with the North Bank PingOne sandbox issuer and p
 7. The hosted app already has the North Bank sandbox issuer and public application client ID. For another environment, use the app's **PingOne setup** page to override these values with that environment's regional issuer URL from OIDC discovery and its public application client ID. Never enter a client secret or LDAP bind password into the app.
 8. Open the app with a test AD user. Test both the correct and an incorrect AD password. Check the sign-in events for gateway lookup, AD credential validation, and MFA, then confirm the profile claims are mapped correctly.
 
+## First sign-in authenticator setup
+
+The North Bank sign-in page can pair a TOTP authenticator after PingOne accepts the AD password. It keeps the PingOne access token and setup key in memory only, creates an MFA device for that same PingOne user, checks an authenticator code to activate it, and enables MFA for the user. The next sign-in should require the code in the same North Bank page.
+
+1. In **North Bank Web CIAM → Resources**, allow `p1:read:device`, `p1:create:device`, `p1:update:device`, and `p1:update:userMfaEnabled` in addition to the existing OIDC scopes. The application requests these scopes at sign-in.
+2. In **Authentication → MFA Policies**, make sure the policy permits **Authenticator App (TOTP)**. In **Authentication → Authentication**, edit **North_Bank_AD_Login** and add a **Multi-Factor Authentication** step after Login. Select that MFA policy. For a first-time user without a device, choose **Bypass** under **None or incompatible methods** so PingOne can finish password authentication and the North Bank page can show enrollment. Save the policy and assign it to North Bank Web CIAM on the app's **Policies** tab.
+3. Allow the North Bank web origin to call the regional PingOne API host in PingOne CORS settings. For this sandbox the API host is `https://api.pingone.sg`; the issuer remains `https://auth.pingone.sg/.../as`.
+4. In a private browser window, sign in as a test AD user with no active TOTP device. On the North Bank page, select **Set up authenticator**, enter the displayed key into an authenticator app, then enter its current code to link it. Sign in again and verify that the policy requests an authenticator code before the app opens. Confirm both events in PingOne authentication logs.
+
+**Security boundary:** PingOne's **Bypass** option completes the first password-only authorization when no MFA device exists. The North Bank page hides its demo dashboard until pairing finishes, but this browser-side check does not make the issued token MFA-enforced. Keep this configuration in a test environment. A production banking app needs a server-side authorization boundary and an enrollment journey that PingOne enforces before issuing usable application access. An active device alone does not prove an MFA challenge happened; verify the MFA policy and sign-in event on later logins. If you lose the setup key or its 30-minute window expires, cancel and sign in again to create a new device.
+
 ### Keep the credential form on the main page
 
 1. Under the application's **Configuration → CORS Settings**, select **Allow specific origins** and allow `https://johnpelquingua.github.io`. Keep Authorization Code, PKCE S256, and the existing redirect URI. The Signon URL can remain set to `signon.html`; the inline `pi.flow` path does not navigate there.
@@ -102,3 +113,4 @@ This is a client-side identity demonstration. A real banking system needs server
 Test valid AD login, bad AD password, MFA cancel/deny, gateway outage, redirect mismatch, logout, and expiry. Verify the correct PingOne policy is assigned to the app. If an existing SSO session skips a challenge, inspect the policy and session settings before drawing conclusions about MFA.
 
 Official references: [PingOne SPA configuration](https://developer.pingidentity.com/pingone-api/platform/applications/applications-1/create-application-oidc-protocol---single-page-app.html), [LDAP gateway setup](https://docs.pingidentity.com/pingone/integrations/p1_gateways_overview.html), [LDAP user type and password authority](https://docs.pingidentity.com/pingone/integrations/p1_add_a_user_type.html), and [gateway authentication policy](https://docs.pingidentity.com/pingone/integrations/p1_create_auth_policy_using_the_gateway.html).
+
