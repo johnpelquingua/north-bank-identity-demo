@@ -61,6 +61,16 @@ The North Bank sign-in page can pair a TOTP authenticator after PingOne accepts 
 
 **Security boundary:** PingOne's **Bypass** option completes the first password-only authorization when no MFA device exists. The North Bank page hides its demo dashboard until pairing finishes, but this browser-side check does not make the issued token MFA-enforced. Keep this configuration in a test environment. A production banking app needs a server-side authorization boundary and an enrollment journey that PingOne enforces before issuing usable application access. An active device alone does not prove an MFA challenge happened; verify the MFA policy and sign-in event on later logins. If you lose the setup key or its 30-minute window expires, cancel and sign in again to create a new device.
 
+### Customer method choices
+
+In this North Bank Customer sandbox, **Authenticator App** and **TOTP** name the same method. The app offers that method, an email code when PingOne UserInfo has an email address, and FIDO2 passkeys/security keys. Existing users with more than one enrolled device can select another method during the PingOne sign-in flow. A PingOne MFA policy must allow each method and the authentication policy must use that MFA policy.
+
+For FIDO2, create or edit a policy under **Authentication → FIDO**. Set the Relying Party ID to **Other → `johnpelquingua.github.io`** for the hosted North Bank page, and allow both platform and cross-platform authenticators if you want passkeys and security keys. In **Authentication → MFA → North_Bank_Authenticator**, enable FIDO2, select the FIDO policy, allow pairing, and save. The WebAuthn relying party must match the website's origin; a custom domain or localhost requires its own FIDO policy and device enrollment. The North Bank app uses this sandbox's `North_Bank_Authenticator` policy ID when creating FIDO2 and email devices.
+
+For email, enable **Email** and **Allow Pairing** in the same MFA policy. Ensure the AD user's `mail` attribute is mapped into PingOne, that UserInfo returns `email`, and that PingOne can send notification emails. The email choice is hidden when UserInfo has no email address.
+
+The screenshot's **Mobile Applications** setting says no native mobile applications are available. It does not enable the PingID mobile app. PingID mobile app enrollment is a Workforce feature; a Customer environment can instead integrate its own native mobile app using PingOne's MFA SDK and pairing keys. This demo does not claim to pair an unavailable mobile app.
+
 ### Keep the credential form on the main page
 
 1. Under the application's **Configuration → CORS Settings**, select **Allow specific origins** and allow `https://johnpelquingua.github.io`. Keep Authorization Code, PKCE S256, and the existing redirect URI. The Signon URL can remain set to `signon.html`; the inline `pi.flow` path does not navigate there.
