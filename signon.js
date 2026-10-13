@@ -86,8 +86,9 @@ function ensureMfaControls() {
   change.type = 'button';
   change.textContent = 'Use another verification method';
   change.hidden = true;
-  parent.insertBefore(fido, document.querySelector('.signon-help'));
-  parent.insertBefore(change, document.querySelector('.signon-help'));
+  const notice = parent.querySelector('.login-notice, .signon-help');
+  parent.insertBefore(fido, notice);
+  parent.insertBefore(change, notice);
   fido.querySelector('button').addEventListener('click', verifyFidoAssertion);
   change.addEventListener('click', () => { clearTimeout(pollTimer); showStep('device-step'); });
 }
@@ -335,4 +336,3 @@ if (typeof document !== 'undefined') {
 }
 
 if (typeof module !== 'undefined') module.exports = { flowEndpoint, signonRequest, validatedFlowEndpoint, actionEndpoint, resumeEndpoint, requestCredentialOptions };
-
