@@ -43,6 +43,18 @@ async function startLogin(){const status=document.querySelector('#flow-status');
 async function validateIDToken(token,d,pending){const parts=token.split('.');if(parts.length!==3)throw Error('Malformed ID token.');const parse=s=>JSON.parse(new TextDecoder().decode(decode(s)));const h=parse(parts[0]),c=parse(parts[1]);if(h.alg!=='RS256'||!h.kid)throw Error('Configure this test application to sign ID tokens with RS256.');const keys=await getJSON(d.jwks_uri);const jwk=keys.keys.find(k=>k.kid===h.kid&&k.kty==='RSA'&&(!k.use||k.use==='sig'));if(!jwk)throw Error('ID token signing key was not found.');const key=await crypto.subtle.importKey('jwk',jwk,{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['verify']);if(!await crypto.subtle.verify('RSASSA-PKCS1-v1_5',key,decode(parts[2]),new TextEncoder().encode(parts[0]+'.'+parts[1])))throw Error('ID token signature is invalid.');const now=Date.now()/1000,aud=Array.isArray(c.aud)?c.aud:[c.aud];if(c.iss!==config.issuer||!aud.includes(config.clientId)||((aud.length>1||c.azp)&&c.azp!==config.clientId)||c.nonce!==pending.nonce||typeof c.exp!=='number'||c.exp<=now||typeof c.iat!=='number'||c.iat>now+60||c.nbf>now+60||typeof c.sub!=='string'||!c.sub)throw Error('ID token claims validation failed.');return c}
 
 const mfaUuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const northBankMfaPolicyId='28af8459-b2b0-45df-9e2c-2b26107b0270';
+const mfaPolicyOption=()=>config.issuer===defaultConfig.issuer?{policy:{id:northBankMfaPolicyId}}:{};
+function fidoOptions(raw){
+  const options=JSON.parse(raw);
+  options.challenge=decode(options.challenge instanceof Array?b64(Uint8Array.from(options.challenge.map(n=>n&255))):options.challenge);
+  options.user.id=decode(options.user.id instanceof Array?b64(Uint8Array.from(options.user.id.map(n=>n&255))):options.user.id);
+  options.excludeCredentials=(options.excludeCredentials||[]).map(item=>({...item,id:decode(item.id instanceof Array?b64(Uint8Array.from(item.id.map(n=>n&255))):item.id)}));
+  return options;
+}
+function fidoAttestation(credential){
+  return JSON.stringify({id:credential.id,type:credential.type,rawId:btoa(String.fromCharCode(...new Uint8Array(credential.rawId))),response:{clientDataJSON:btoa(String.fromCharCode(...new Uint8Array(credential.response.clientDataJSON))),attestationObject:btoa(String.fromCharCode(...new Uint8Array(credential.response.attestationObject)))},clientExtensionResults:credential.getClientExtensionResults()});
+}
 function mfaDeviceUrl(userId,deviceId){
   const issuer=validateIssuer(config.issuer);
   const env=issuer.pathname.split('/')[1];
@@ -52,7 +64,7 @@ function mfaDeviceUrl(userId,deviceId){
 async function mfaApi(url,options={}){
   if(!session?.accessToken)throw Error('Sign in again to manage your authenticator.');
   const response=await fetch(url,{...options,headers:{Authorization:'Bearer '+session.accessToken,...options.headers},credentials:'omit',cache:'no-store',redirect:'error',signal:AbortSignal.timeout(20000)});
-  if(!response.ok)throw Error(response.status===401||response.status===403?'Authenticator setup needs the PingOne API self-service scopes on this application.':'PingOne could not complete authenticator setup ('+response.status+').');
+  if(!response.ok)throw Error(response.status===401||response.status===403?'PingOne rejected this method. Check its MFA policy, pairing permission, and application self-service scopes.':'PingOne could not complete authenticator setup ('+response.status+').');
   return response.json();
 }
 async function enableUserMfa(){const result=await mfaApi(mfaDeviceUrl(session.user.sub).replace(/\/devices$/,'/mfaEnabled'),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({mfaEnabled:true})});if(result.mfaEnabled!==true)throw Error('PingOne did not enable MFA for this user.')}
@@ -60,22 +72,25 @@ async function loadMfaState(){
   const result=await mfaApi(mfaDeviceUrl(session.user.sub));
   const devices=result?._embedded?.devices??[];
   if(!Array.isArray(devices))throw Error('PingOne returned an unexpected device list.');
-  session.mfaReady=devices.some(device=>device.type==='TOTP'&&device.status==='ACTIVE');
+  session.mfaReady=devices.some(device=>['TOTP','FIDO2','MOBILE','EMAIL'].includes(device.type)&&device.status==='ACTIVE');
 }
 function renderEnrollment(){
   if(!session)return;
   let content;
   if(mfaFinished){
-    content='<h1>Authenticator linked.</h1><p>Sign in once more to confirm the new MFA challenge.</p><button class="btn wide" id="mfa-restart">Continue to sign in</button>';
+    content='<h1>Verification method linked.</h1><p>Sign in once more to confirm the new MFA challenge.</p><button class="btn wide" id="mfa-restart">Continue to sign in</button>';
   }else if(mfaNeedsEnable){
     content='<h1>Finish authenticator setup.</h1><p>Your authenticator is linked. Complete the final PingOne MFA setting before signing in again.</p><button class="btn wide" id="mfa-enable">Complete setup</button>';
   }else if(mfaDevice){
-    content='<h1>Connect your authenticator.</h1><p>Add this setup key in your authenticator app, then enter its current code below.</p><p class="small muted">The key expires after 30 minutes. Keep it private.</p><div class="note"><strong>Setup key</strong><br><code>'+esc(mfaDevice.secret)+'</code></div><form id="mfa-activate"><label for="mfa-code">Authenticator code</label><input id="mfa-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" required><button class="btn wide" type="submit">Verify and link authenticator</button></form>';
+    const email=mfaDevice.type==='EMAIL';
+    content='<h1>'+ (email?'Confirm your email.':'Connect your authenticator.') +'</h1><p>'+(email?'Enter the code PingOne sent to '+esc(mfaDevice.email)+'.':'Add this setup key in your authenticator app, then enter its current code below.')+'</p>'+(email?'':'<p class="small muted">The key expires after 30 minutes. Keep it private.</p><div class="note"><strong>Setup key</strong><br><code>'+esc(mfaDevice.secret)+'</code></div>')+'<form id="mfa-activate"><label for="mfa-code">Verification code</label><input id="mfa-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" required><button class="btn wide" type="submit">Verify and link method</button></form>';
   }else{
-    content='<h1>Secure your account.</h1><p>Set up an authenticator app to protect your North Bank sign-ins.</p><button class="btn wide" id="mfa-start">Set up authenticator</button>';
+    content='<h1>Choose a verification method.</h1><p>Protect your North Bank sign-ins with one of the methods allowed by your organization.</p><button class="btn wide" id="mfa-start">Authenticator app (TOTP)</button><button class="btn secondary wide" id="mfa-fido-start" type="button">Passkey or FIDO2 security key</button>'+(session.user.email?'<button class="btn secondary wide" id="mfa-email-start" type="button">Email code</button>':'');
   }
   app.innerHTML='<div class="login"><section class="story">'+brand()+'<h1>A little clarity.<br>A lot of possibility.</h1><p>Your everyday banking, all in one place.</p></section><main id="main" class="login-form"><div class="login-inner"><span class="pill"><span class="dot"></span>Account security</span>'+content+(mfaError?'<p class="error" role="alert">'+esc(mfaError)+'</p>':'')+'<p class="small muted signon-help">North Bank keeps the setup key in memory only while this page is open.</p><button class="action" id="mfa-signout" type="button">Cancel and sign out</button></div></main></div>';
   document.querySelector('#mfa-start')?.addEventListener('click',createAuthenticator);
+  document.querySelector('#mfa-fido-start')?.addEventListener('click',createFidoAuthenticator);
+  document.querySelector('#mfa-email-start')?.addEventListener('click',createEmailAuthenticator);
   document.querySelector('#mfa-enable')?.addEventListener('click',completeMfaEnable);
   document.querySelector('#mfa-activate')?.addEventListener('submit',activateAuthenticator);
   document.querySelector('#mfa-restart')?.addEventListener('click',()=>{clearTimeout(expiryTimer);session=null;mfaDevice=null;mfaFinished=false;mfaNeedsEnable=false;location.assign(baseURL)});
@@ -84,9 +99,33 @@ function renderEnrollment(){
 async function createAuthenticator(){
   const button=document.querySelector('#mfa-start');button.disabled=true;mfaError='';
   try{
-    const device=await mfaApi(mfaDeviceUrl(session.user.sub),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'TOTP'})});
+    const device=await mfaApi(mfaDeviceUrl(session.user.sub),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'TOTP',...mfaPolicyOption()})});
     if(!mfaUuid.test(device.id||'')||device.status!=='ACTIVATION_REQUIRED'||!device.secret||!/^[A-Z2-7]+$/i.test(device.secret))throw Error('PingOne did not return a valid authenticator setup key.');
-    mfaDevice={id:device.id,secret:device.secret};renderEnrollment();
+    mfaDevice={id:device.id,type:'TOTP',secret:device.secret};renderEnrollment();
+  }catch(error){mfaError=error.message;renderEnrollment()}
+}
+async function createFidoAuthenticator(){
+  const button=document.querySelector('#mfa-fido-start');button.disabled=true;mfaError='';
+  try{
+    if(!navigator.credentials?.create||!window.isSecureContext)throw Error('A secure browser with passkey support is required.');
+    if(config.issuer!==defaultConfig.issuer)throw Error('This environment needs its own FIDO2 policy configuration.');
+    const device=await mfaApi(mfaDeviceUrl(session.user.sub),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'FIDO2',rp:{id:location.hostname,name:'North Bank'},policy:{id:northBankMfaPolicyId}})});
+    if(!mfaUuid.test(device.id||'')||device.status!=='ACTIVATION_REQUIRED'||!device.publicKeyCredentialCreationOptions)throw Error('PingOne did not return a valid passkey challenge.');
+    const credential=await navigator.credentials.create({publicKey:fidoOptions(device.publicKeyCredentialCreationOptions)});
+    if(!credential)throw Error('Passkey setup was cancelled.');
+    const active=await mfaApi(mfaDeviceUrl(session.user.sub,device.id),{method:'POST',headers:{'Content-Type':'application/vnd.pingidentity.device.activate+json'},body:JSON.stringify({origin:location.origin,attestation:fidoAttestation(credential)})});
+    if(active.status!=='ACTIVE')throw Error('PingOne did not activate the passkey.');
+    mfaNeedsEnable=true;await enableUserMfa();mfaNeedsEnable=false;mfaFinished=true;renderEnrollment();
+  }catch(error){mfaError=error.message;renderEnrollment()}
+}
+async function createEmailAuthenticator(){
+  const button=document.querySelector('#mfa-email-start');button.disabled=true;mfaError='';
+  try{
+    const email=String(session.user.email||'').trim();
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw Error('Your PingOne profile needs a valid email address for email verification.');
+    const device=await mfaApi(mfaDeviceUrl(session.user.sub),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'EMAIL',email,...mfaPolicyOption()})});
+    if(!mfaUuid.test(device.id||'')||device.status!=='ACTIVATION_REQUIRED')throw Error('PingOne did not start email pairing.');
+    mfaDevice={id:device.id,type:'EMAIL',email};renderEnrollment();
   }catch(error){mfaError=error.message;renderEnrollment()}
 }
 async function completeMfaEnable(){const button=document.querySelector('#mfa-enable');button.disabled=true;mfaError='';try{await enableUserMfa();mfaNeedsEnable=false;mfaFinished=true;renderEnrollment()}catch(error){mfaError=error.message;renderEnrollment()}}
