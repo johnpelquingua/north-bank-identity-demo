@@ -67,6 +67,16 @@ function clearError() {
   box.hidden = true;
 }
 
+function setPasswordVisible(visible) {
+  const password = document.querySelector('#password');
+  const toggle = document.querySelector('#toggle-password');
+  if (!password || !toggle) return;
+  password.type = visible ? 'text' : 'password';
+  toggle.textContent = visible ? 'Hide' : 'Show';
+  toggle.setAttribute('aria-label', visible ? 'Hide password' : 'Show password');
+  toggle.setAttribute('aria-pressed', String(visible));
+}
+
 function showStep(name) {
   for (const id of ['credentials', 'otp-step', 'device-step', 'push-step', 'fido-step']) {
     document.getElementById(id).hidden = id !== name;
@@ -173,6 +183,7 @@ function renderFlow(flow) {
       showStep('credentials');
       status.textContent = 'Enter your AD username and password.';
       document.querySelector('#password').value = '';
+      setPasswordVisible(false);
       document.querySelector('#username').readOnly = false;
       if (flow.status === 'PASSWORD_REQUIRED' && flow.username) {
         document.querySelector('#username').value = flow.username;
@@ -306,11 +317,15 @@ async function boot() {
   const query = new URLSearchParams(location.search);
   if (!document.querySelector('#credentials')) return;
   if (query.has('flowId')) currentFlowUrl = signonRequest(query);
+  document.querySelector('#toggle-password')?.addEventListener('click', () => {
+    setPasswordVisible(document.querySelector('#password').type === 'password');
+  });
   document.querySelector('#credentials').addEventListener('submit', event => {
     event.preventDefault();
     const password = document.querySelector('#password');
     const payload = { username: document.querySelector('#username').value.trim(), password: password.value };
     password.value = '';
+    setPasswordVisible(false);
     submitFlow('usernamePassword.check', 'usernamePassword.check', payload);
   });
   document.querySelector('#otp-step').addEventListener('submit', event => {
