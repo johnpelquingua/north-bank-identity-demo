@@ -1,5 +1,5 @@
 // North Bank fictional transfer API. No real funds or payment rails are involved.
-import { authorizationJwks, authorizeRecognizeUser, recognizeTransactionData, verifyRecognizeProof } from './recognize.mjs';
+import { authorizeRecognizeUser, recognizeTransactionData, verifyRecognizeProof } from './recognize.mjs';
 const ISSUER = 'https://auth.pingone.sg/22f37616-5cf6-47ee-8111-f0c870cbfa8f/as';
 const CLIENT_ID = 'b62c72a0-1d23-4351-8f67-77054a795169';
 const ALLOWED_ORIGINS = new Set(['https://johnpelquingua.github.io', 'http://localhost:8080']);
@@ -109,9 +109,6 @@ export async function handleBankRequest(request, dependencies = {}) {
   if (request.method === 'OPTIONS') return response({}, 200, origin);
   if (request.method !== 'GET' && request.method !== 'POST') return response({ error: 'Method not allowed.' }, 405, origin);
   try {
-    if (request.method === 'GET' && new URL(request.url).searchParams.get('jwks') === '1') {
-      return response(authorizationJwks(getEnv), 200, origin);
-    }
     const match = /^Bearer (\S+)$/.exec(request.headers.get('Authorization') || '');
     if (!match) throw new BankError('Sign in again.', 401);
     const claims = await verifyPingOneToken(match[1], fetcher, cryptoApi);
