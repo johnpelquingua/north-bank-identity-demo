@@ -209,6 +209,7 @@ function renderFlow(flow) {
       status.textContent = 'Completing sign-in…';
       if (inlineFlowId) completeInlineFlow(flow).catch(error => {
         showError(error.message);
+        status.textContent = 'Sign-in could not complete.';
         restart.hidden = false;
       });
       else location.assign(resumeEndpoint(flow, new URLSearchParams(location.search).get('flowId')));
