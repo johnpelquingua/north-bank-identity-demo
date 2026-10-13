@@ -115,6 +115,20 @@ test('FIDO2 enrollment options retain PingOne challenge bytes', () => {
   assert.deepEqual([...options.excludeCredentials[0].id], [254, 4]);
 });
 
+test('authenticator QR encodes the PingOne enrollment URI locally', () => {
+  const qrcode = require('../vendor/qrcode.js');
+  const secret = 'JBSWY3DPEHPK3PXP';
+  const keyUri = `otpauth://totp/test.user?secret=${secret}`;
+  const uri = evaluate(`totpEnrollmentUri({secret:'${secret}',keyUri:'${keyUri}'},{username:'test.user'})`);
+  assert.equal(uri, keyUri);
+  const qr = qrcode(0, 'M');
+  qr.addData(uri);
+  qr.make();
+  assert.match(qr.createSvgTag({cellSize:5,margin:20,scalable:true}), /^<svg\b/);
+  const other = evaluate(`totpEnrollmentUri({secret:'${secret}',keyUri:'otpauth://totp/test.user?secret=WRONG'},{username:'test.user'})`);
+  assert.equal(new URL(other).searchParams.get('secret'), secret);
+});
+
 test('opening the main page starts a non-redirect PingOne flow with PKCE', async () => {
   let request;
   let receivedFlow;
