@@ -30,6 +30,7 @@ test('statements include only the signed-in account history within Philippine da
   assert.equal(rows.length,1);
   assert.equal(rows[0].name,'Second customer');
   assert.equal(rows[0].amount,-20000);
+  assert.equal(rows[0].date,'13 Oct 2026');
   const html=vm.runInContext('statements()',context);
   assert.match(html,/1 transaction in this range/);
   assert.match(html,/Second customer/);
