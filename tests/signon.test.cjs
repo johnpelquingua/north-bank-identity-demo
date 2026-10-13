@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { flowEndpoint, signonRequest, validatedFlowEndpoint, actionEndpoint, resumeEndpoint } = require('../signon.js');
+const { flowEndpoint, signonRequest, validatedFlowEndpoint, actionEndpoint, resumeEndpoint, requestCredentialOptions } = require('../signon.js');
 
 const id = '0370bd50-0f2a-4749-afd4-195a63553372';
 const expected = `https://auth.pingone.sg/22f37616-5cf6-47ee-8111-f0c870cbfa8f/flows/${id}`;
@@ -31,5 +31,14 @@ test('completed sign-in only resumes at the trusted PingOne endpoint', () => {
   assert.equal(resumeEndpoint({ resumeUrl }, id), resumeUrl);
   assert.throws(() => resumeEndpoint({ resumeUrl: 'https://example.com/steal?flowId=' + id }, id), /unexpected sign-in destination/);
   assert.throws(() => resumeEndpoint({ resumeUrl: resumeUrl.replace(id, '00000000-0000-0000-0000-000000000000') }, id), /unexpected sign-in destination/);
+});
+
+test('FIDO2 challenge bytes are converted for the browser credential API', () => {
+  const options = requestCredentialOptions(JSON.stringify({
+    challenge: [-1, 0, 127],
+    allowCredentials: [{ type: 'public-key', id: [-128, 1] }]
+  }));
+  assert.deepEqual([...options.challenge], [255, 0, 127]);
+  assert.deepEqual([...options.allowCredentials[0].id], [128, 1]);
 });
 
