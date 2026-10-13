@@ -45,6 +45,36 @@ async function validateIDToken(token,d,pending){const parts=token.split('.');if(
 const mfaUuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const northBankMfaPolicyId='28af8459-b2b0-45df-9e2c-2b26107b0270';
 const mfaPolicyOption=()=>config.issuer===defaultConfig.issuer?{policy:{id:northBankMfaPolicyId}}:{};
+function totpEnrollmentUri(device,user){
+  if(typeof device.keyUri==='string'){
+    try{
+      const supplied=new URL(device.keyUri);
+      if(supplied.protocol==='otpauth:'&&supplied.hostname==='totp'&&supplied.searchParams.get('secret')?.toUpperCase()===device.secret.toUpperCase())return device.keyUri;
+    }catch{}
+  }
+  const account=String(user.preferred_username||user.username||user.email||user.sub);
+  const uri=new URL('otpauth://totp/'+encodeURIComponent('North Bank: '+account));
+  uri.searchParams.set('secret',device.secret);
+  uri.searchParams.set('issuer','North Bank');
+  return uri.href;
+}
+function renderTotpQr(){
+  const target=document.querySelector('#mfa-qr');
+  if(!target||!mfaDevice||mfaDevice.type!=='TOTP')return;
+  try{
+    if(typeof qrcode!=='function')throw Error('QR code generator is unavailable.');
+    const qr=qrcode(0,'M');
+    qr.addData(mfaDevice.keyUri);
+    qr.make();
+    target.innerHTML=qr.createSvgTag({cellSize:5,margin:20,scalable:true});
+  }catch{
+    target.textContent='QR code unavailable. Open “Use setup key instead” below.';
+  }
+  const fallback=document.querySelector('#mfa-manual-key');
+  fallback?.addEventListener('toggle',()=>{
+    document.querySelector('#mfa-setup-key').textContent=fallback.open?mfaDevice.secret:'';
+  });
+}
 function fidoOptions(raw){
   const options=JSON.parse(raw);
   options.challenge=decode(options.challenge instanceof Array?b64(Uint8Array.from(options.challenge.map(n=>n&255))):options.challenge);
@@ -92,11 +122,12 @@ function renderEnrollment(){
     content='<h1>Finish authenticator setup.</h1><p>Your authenticator is linked. Complete the final PingOne MFA setting before signing in again.</p><button class="btn wide" id="mfa-enable">Complete setup</button>';
   }else if(mfaDevice){
     const email=mfaDevice.type==='EMAIL';
-    content='<h1>'+ (email?'Confirm your email.':'Connect your authenticator.') +'</h1><p>'+(email?'Enter the code PingOne sent to '+esc(mfaDevice.email)+'.':'Add this setup key in your authenticator app, then enter its current code below.')+'</p>'+(email?'':'<p class="small muted">The key expires after 30 minutes. Keep it private.</p><div class="note"><strong>Setup key</strong><br><code>'+esc(mfaDevice.secret)+'</code></div>')+'<form id="mfa-activate"><label for="mfa-code">Verification code</label><input id="mfa-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" required><button class="btn wide" type="submit">Verify and link method</button></form>';
+    content='<h1>'+ (email?'Confirm your email.':'Connect your authenticator.') +'</h1><p>'+(email?'Enter the code PingOne sent to '+esc(mfaDevice.email)+'.':'Scan this QR code with your authenticator app, then enter the current code below.')+'</p>'+(email?'':'<p class="small muted">This QR code expires after 30 minutes. Keep it private.</p><div id="mfa-qr" class="totp-qr" role="img" aria-label="Authenticator setup QR code"></div><details id="mfa-manual-key" class="totp-manual"><summary>Use setup key instead</summary><div class="note"><strong>Setup key</strong><br><code id="mfa-setup-key"></code></div></details>')+'<form id="mfa-activate"><label for="mfa-code">Verification code</label><input id="mfa-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" required><button class="btn wide" type="submit">Verify and link method</button></form>';
   }else{
     content='<h1>Choose a verification method.</h1><p>Protect your North Bank sign-ins with one of the methods allowed by your organization.</p><button class="btn wide" id="mfa-start">Authenticator app (TOTP)</button><button class="btn secondary wide" id="mfa-fido-start" type="button">Passkey or FIDO2 security key</button>'+(session.user.email?'<button class="btn secondary wide" id="mfa-email-start" type="button">Email code</button>':'');
   }
   app.innerHTML='<div class="login"><section class="story">'+brand()+'<h1>A little clarity.<br>A lot of possibility.</h1><p>Your everyday banking, all in one place.</p></section><main id="main" class="login-form"><div class="login-inner"><span class="pill"><span class="dot"></span>Account security</span>'+content+(mfaError?'<p class="error" role="alert">'+esc(mfaError)+'</p>':'')+'<p class="small muted signon-help">North Bank keeps the setup key in memory only while this page is open.</p><button class="action" id="mfa-signout" type="button">Cancel and sign out</button></div></main></div>';
+  renderTotpQr();
   document.querySelector('#mfa-start')?.addEventListener('click',createAuthenticator);
   document.querySelector('#mfa-fido-start')?.addEventListener('click',createFidoAuthenticator);
   document.querySelector('#mfa-email-start')?.addEventListener('click',createEmailAuthenticator);
@@ -110,7 +141,7 @@ async function createAuthenticator(){
   try{
     const device=await mfaApi(mfaDeviceUrl(session.user.sub),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'TOTP'})});
     if(!mfaUuid.test(device.id||'')||device.status!=='ACTIVATION_REQUIRED'||!device.secret||!/^[A-Z2-7]+$/i.test(device.secret))throw Error('PingOne did not return a valid authenticator setup key.');
-    mfaDevice={id:device.id,type:'TOTP',secret:device.secret};renderEnrollment();
+    mfaDevice={id:device.id,type:'TOTP',secret:device.secret,keyUri:totpEnrollmentUri(device,session.user)};renderEnrollment();
   }catch(error){mfaError=error.message;renderEnrollment()}
 }
 async function createFidoAuthenticator(){
