@@ -6,7 +6,7 @@ create or replace function public.demo_transfer_needs_face(
   p_issuer text, p_sender_subject text, p_amount_cents bigint
 )
 returns boolean
-language sql stable security invoker
+language sql volatile security invoker
 set search_path = ''
 as $$
   select case
@@ -18,7 +18,7 @@ as $$
       where a.issuer = p_issuer
         and a.subject = p_sender_subject
         and t.amount_cents >= 2000000
-        and t.created_at >= now() - interval '10 minutes'
+        and t.created_at >= clock_timestamp() - interval '10 minutes'
     )
   end;
 $$;
