@@ -136,6 +136,19 @@ test('profile opens MFA management and preference changes use PingOne device ord
   evaluate('session=null');
 });
 
+test('email enrollment accepts a method PingOne activates immediately', async () => {
+  const userId = 'fa15fe35-b52a-4240-a22f-59274a2fa72a';
+  evaluate(`session={mode:'pingone',user:{sub:'${userId}',email:'user@example.com'},accessToken:'test-token',mfaReady:true}`);
+  context.document = { querySelector: () => ({ disabled: false }) };
+  context.mfaApi = async () => ({ id: '11111111-1111-4111-8111-111111111111', status: 'ACTIVE' });
+  let completed = false;
+  context.finishMfaEnrollment = async () => { completed = true; };
+  await context.createEmailAuthenticator();
+  assert.equal(completed, true);
+  context.document = undefined;
+  evaluate('session=null');
+});
+
 test('FIDO2 enrollment options retain PingOne challenge bytes', () => {
   const options = evaluate(`fidoOptions(JSON.stringify({challenge:[-1,2],user:{id:[-128,3]},excludeCredentials:[{type:'public-key',id:[-2,4]}]}))`);
   assert.deepEqual([...options.challenge], [255, 2]);
