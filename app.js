@@ -43,8 +43,6 @@ async function startLogin(){const status=document.querySelector('#flow-status');
 async function validateIDToken(token,d,pending){const parts=token.split('.');if(parts.length!==3)throw Error('Malformed ID token.');const parse=s=>JSON.parse(new TextDecoder().decode(decode(s)));const h=parse(parts[0]),c=parse(parts[1]);if(h.alg!=='RS256'||!h.kid)throw Error('Configure this test application to sign ID tokens with RS256.');const keys=await getJSON(d.jwks_uri);const jwk=keys.keys.find(k=>k.kid===h.kid&&k.kty==='RSA'&&(!k.use||k.use==='sig'));if(!jwk)throw Error('ID token signing key was not found.');const key=await crypto.subtle.importKey('jwk',jwk,{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['verify']);if(!await crypto.subtle.verify('RSASSA-PKCS1-v1_5',key,decode(parts[2]),new TextEncoder().encode(parts[0]+'.'+parts[1])))throw Error('ID token signature is invalid.');const now=Date.now()/1000,aud=Array.isArray(c.aud)?c.aud:[c.aud];if(c.iss!==config.issuer||!aud.includes(config.clientId)||((aud.length>1||c.azp)&&c.azp!==config.clientId)||c.nonce!==pending.nonce||typeof c.exp!=='number'||c.exp<=now||typeof c.iat!=='number'||c.iat>now+60||c.nbf>now+60||typeof c.sub!=='string'||!c.sub)throw Error('ID token claims validation failed.');return c}
 
 const mfaUuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const northBankMfaPolicyId='28af8459-b2b0-45df-9e2c-2b26107b0270';
-const mfaPolicyOption=()=>config.issuer===defaultConfig.issuer?{policy:{id:northBankMfaPolicyId}}:{};
 function totpEnrollmentUri(device,user){
   if(typeof device.keyUri==='string'){
     try{
@@ -179,9 +177,18 @@ function renderEnrollment(){
     const email=mfaDevice.type==='EMAIL';
     content='<h1>'+ (email?'Confirm your email.':'Connect your authenticator.') +'</h1><p>'+(email?'Enter the code PingOne sent to '+esc(mfaDevice.email)+'.':'Scan this QR code with your authenticator app, then enter the current code below.')+'</p>'+(email?'':'<p class="small muted">This QR code expires after 30 minutes. Keep it private.</p><div id="mfa-qr" class="totp-qr" role="img" aria-label="Authenticator setup QR code"></div><details id="mfa-manual-key" class="totp-manual"><summary>Use setup key instead</summary><div class="note"><strong>Setup key</strong><br><code id="mfa-setup-key"></code></div></details>')+'<form id="mfa-activate"><label for="mfa-code">Verification code</label><input id="mfa-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" required><button class="btn wide" type="submit">Verify and link method</button></form>';
   }else{
-    content='<h1>Choose a verification method.</h1><p>Protect your North Bank sign-ins with one of the methods allowed by your organization.</p><button class="btn wide" id="mfa-start">Authenticator app (TOTP)</button><button class="btn secondary wide" id="mfa-fido-start" type="button">Passkey or FIDO2 security key</button>'+(session.user.email?'<button class="btn secondary wide" id="mfa-email-start" type="button">Email code</button>':'');
+    const enrolled=new Set(mfaEnrollmentOpen?(session.mfaDevices||[]).filter(device=>device.status==='ACTIVE').map(device=>device.type):[]);
+    content='<h1>Choose a verification method.</h1><p>Protect your North Bank sign-ins with one of the methods allowed by your organization.</p>'+
+      (!enrolled.has('TOTP')?'<button class="btn wide" id="mfa-start">Authenticator app (TOTP)</button>':'')+
+      (!['FIDO2','PLATFORM','SECURITY_KEY'].some(type=>enrolled.has(type))?'<button class="btn secondary wide" id="mfa-fido-start" type="button">Passkey or FIDO2 security key</button>':'')+
+      (session.user.email&&!enrolled.has('EMAIL')?'<button class="btn secondary wide" id="mfa-email-start" type="button">Email code</button>':'');
   }
-  app.innerHTML='<div class="login"><section class="story">'+brand()+'<h1>A little clarity.<br>A lot of possibility.</h1><p>Your everyday banking, all in one place.</p></section><main id="main" class="login-form"><div class="login-inner"><span class="pill"><span class="dot"></span>Account security</span>'+content+(mfaError?'<p class="error" role="alert">'+esc(mfaError)+'</p>':'')+'<p class="small muted signon-help">North Bank keeps the setup key in memory only while this page is open.</p><button class="action" id="mfa-signout" type="button">'+(mfaEnrollmentOpen?'Back to sign-in methods':'Cancel and sign out')+'</button></div></main></div>';
+  const panel='<div class="login-inner"><span class="pill"><span class="dot"></span>Account security</span>'+content+(mfaError?'<p class="error" role="alert">'+esc(mfaError)+'</p>':'')+'<p class="small muted signon-help">North Bank keeps the setup key in memory only while this page is open.</p><button class="action" id="mfa-signout" type="button">'+(mfaEnrollmentOpen?'Back to sign-in methods':'Cancel and sign out')+'</button></div>';
+  if(mfaEnrollmentOpen){
+    document.querySelector('#main').innerHTML='<div class="heading"><div><div class="eyebrow muted">ACCOUNT SECURITY</div><h1>Add a sign-in method</h1></div></div><section class="card mfa-enrollment-card">'+panel+'</section>';
+  }else{
+    app.innerHTML='<div class="login"><section class="story">'+brand()+'<h1>A little clarity.<br>A lot of possibility.</h1><p>Your everyday banking, all in one place.</p></section><main id="main" class="login-form">'+panel+'</main></div>';
+  }
   renderTotpQr();
   document.querySelector('#mfa-start')?.addEventListener('click',createAuthenticator);
   document.querySelector('#mfa-fido-start')?.addEventListener('click',createFidoAuthenticator);
@@ -203,8 +210,7 @@ async function createFidoAuthenticator(){
   const button=document.querySelector('#mfa-fido-start');button.disabled=true;mfaError='';
   try{
     if(!navigator.credentials?.create||!window.isSecureContext)throw Error('A secure browser with passkey support is required.');
-    if(config.issuer!==defaultConfig.issuer)throw Error('This environment needs its own FIDO2 policy configuration.');
-    const device=await mfaApi(mfaDeviceUrl(session.user.sub),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'FIDO2',rp:{id:location.hostname,name:'North Bank'},policy:{id:northBankMfaPolicyId}})});
+    const device=await mfaApi(mfaDeviceUrl(session.user.sub),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'FIDO2',rp:{id:location.hostname,name:'North Bank'}})});
     if(!mfaUuid.test(device.id||'')||device.status!=='ACTIVATION_REQUIRED'||!device.publicKeyCredentialCreationOptions)throw Error('PingOne did not return a valid passkey challenge.');
     const credential=await navigator.credentials.create({publicKey:fidoOptions(device.publicKeyCredentialCreationOptions)});
     if(!credential)throw Error('Passkey setup was cancelled.');
@@ -218,7 +224,7 @@ async function createEmailAuthenticator(){
   try{
     const email=String(session.user.email||'').trim();
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw Error('Your PingOne profile needs a valid email address for email verification.');
-    const device=await mfaApi(mfaDeviceUrl(session.user.sub),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'EMAIL',email,...mfaPolicyOption()})});
+    const device=await mfaApi(mfaDeviceUrl(session.user.sub),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'EMAIL',email})});
     if(!mfaUuid.test(device.id||''))throw Error('PingOne did not create an email verification method.');
     if(device.status==='ACTIVE'){await finishMfaEnrollment();return}
     if(device.status!=='ACTIVATION_REQUIRED')throw Error('PingOne did not start email pairing.');
