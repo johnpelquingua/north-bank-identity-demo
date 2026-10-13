@@ -10,5 +10,5 @@ const privateJwk = await webcrypto.subtle.exportKey('jwk', pair.privateKey);
 const kid = webcrypto.randomUUID();
 console.log('RECOGNIZE_AUTH_KEY_ID=' + kid);
 console.log('RECOGNIZE_AUTH_PRIVATE_JWK=' + JSON.stringify(privateJwk));
-console.log('Keep the private JWK in Supabase Secrets only. The public key is exposed by bank-demo?jwks=1.');
+console.log('Keep the private JWK in Supabase Secrets only. Deploy the recognize-jwks function to expose the public key.');
 
