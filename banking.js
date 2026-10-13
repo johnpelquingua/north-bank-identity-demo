@@ -19,6 +19,21 @@ let recognizeSdkPromise;
 function recognizeEnrollmentKey(){return 'north.recognize.enrolled.'+encodeURIComponent(session?.user?.sub||'')}
 function hasRecognizeEnrollment(){try{return localStorage.getItem(recognizeEnrollmentKey())==='1'}catch{return false}}
 function rememberRecognizeEnrollment(){try{localStorage.setItem(recognizeEnrollmentKey(),'1')}catch{}}
+function recognizeFailureMessage(code,mode){
+  const messages={
+    MEDIA_DEVICES_EMPTY_VIDEO_INPUT_LABEL:'Allow camera access in your browser, then try again.',
+    MEDIA_STREAM_NOT_ALLOWED:'Allow camera access in your browser, then try again.',
+    MEDIA_DEVICES_NO_VIDEO_INPUTS:'No camera was found. Connect a camera, then try again.',
+    MEDIA_STREAM_NOT_FOUND:'No camera was found. Connect a camera, then try again.',
+    MEDIA_STREAM_NOT_READABLE:'Your camera is in use or unavailable. Close other camera apps, then try again.',
+    SESSION_MEDIA_STREAM_TIMEOUT:'The face scan timed out. Try again in good lighting.',
+    SERVER_RECOGNITION_FAILED:'Your face could not be confirmed. Try again in good lighting; contact support if it keeps happening.',
+    SERVER_USER_LOCKED_OUT:'Face verification is temporarily locked. Contact support before trying again.',
+    SERVER_FORBIDDEN:'The face verification session was rejected. Sign in again and retry.',
+    SESSION_MANAGER_NOT_NULL:'The previous camera session did not close. Reload the page, then try again.',
+  };
+  return (messages[code]||`${mode==='enroll'?'Face setup':'Face verification'} did not finish. Please try again.`)+` (Code: ${code})`;
+}
 function loadRecognizeSdk(){
   if(recognizeSdkPromise)return recognizeSdkPromise;
   recognizeSdkPromise=new Promise((resolve,reject)=>{
@@ -177,14 +192,17 @@ transfer=function(){
         component.setAttribute('theme','light');
         component.setAttribute('size','375');
         component.setAttribute('enable-camera-instructions','');
+        let settled=false;
         component.addEventListener('error',event=>{
-          if(!dialog.open)return;
-          failure.textContent=mode==='enroll'?'Face setup did not finish. Please try again.':'Face verification did not finish. Please try again.';
-          if(mode==='auth')enrollOption.hidden=false;
+          if(!dialog.open||settled)return;
+          settled=true;
+          const code=typeof event.message==='string'&&/^[A-Z][A-Z0-9_]{2,80}$/.test(event.message)?event.message:'UNKNOWN';
+          failure.textContent=recognizeFailureMessage(code,mode);
           failure.hidden=false;options.hidden=false;camera.replaceChildren();busy=false;panel.classList.remove('recognize-busy');message.textContent='Choose an option to try again.';
         },{once:true});
         component.addEventListener('success',async event=>{
-          if(!dialog.open)return;
+          if(!dialog.open||settled)return;
+          settled=true;
           const proof=event.detail?.jwt;
           camera.replaceChildren();
           if(mode==='enroll'){
