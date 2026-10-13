@@ -158,12 +158,20 @@ transfer=function(){
     dialog.setAttribute('aria-labelledby','recognize-title');
     const panel=document.createElement('section');
     panel.className='recognize-panel';
-    panel.innerHTML='<div class="transfer-header"><span class="transfer-eyebrow">ONE MORE SECURITY STEP</span><h3 id="recognize-title">Verify this transfer</h3><p>Confirm it is you before the transfer is sent.</p></div><div class="transfer-summary"><div><span>Amount</span><strong id="recognize-amount"></strong></div><div><span>To account</span><strong id="recognize-recipient"></strong></div></div><p class="recognize-prompt">Face verification</p><div id="recognize-options" class="recognize-options"><button type="button" class="recognize-choice" id="recognize-verify"><span class="recognize-choice-icon" aria-hidden="true">◉</span><span><strong>Verify my face</strong><small>Use your camera to confirm this transfer.</small></span><span class="recognize-choice-arrow" aria-hidden="true">→</span></button><button type="button" class="recognize-setup-link" id="recognize-enroll">First time using face verification? Set it up</button></div><p class="recognize-status" id="recognize-message" role="status"></p><div id="recognize-camera"></div><p class="error transfer-error" id="recognize-error" role="alert" hidden></p><div class="transfer-footer recognize-footer"><button type="button" class="btn secondary" id="recognize-cancel">Cancel transfer</button></div>';
+    panel.innerHTML=`<div class="transfer-header"><span class="transfer-eyebrow">ONE MORE SECURITY STEP</span><h3 id="recognize-title">Verify this transfer</h3><p>Confirm it is you before the transfer is sent.</p></div>
+      <div class="transfer-summary"><div><span>Amount</span><strong id="recognize-amount"></strong></div><div><span>To account</span><strong id="recognize-recipient"></strong></div></div>
+      <p class="recognize-prompt">Face verification</p>
+      <div id="recognize-options" class="recognize-options">
+        <button type="button" class="recognize-choice" id="recognize-verify"><span class="recognize-choice-icon" aria-hidden="true">◉</span><span><strong>Verify my face</strong><small>Use your camera to confirm this transfer.</small></span><span class="recognize-choice-arrow" aria-hidden="true">→</span></button>
+        <details class="recognize-help" id="recognize-help"><summary>Need help with face verification?</summary><p>If you have not registered your face yet, set it up before confirming this transfer.</p><button type="button" class="recognize-setup-link" id="recognize-enroll">Set up face verification</button></details>
+      </div>
+      <p class="recognize-status" id="recognize-message" role="status"></p><div id="recognize-camera"></div><p class="error transfer-error" id="recognize-error" role="alert" hidden></p>
+      <div class="transfer-footer recognize-footer"><button type="button" class="btn secondary" id="recognize-cancel">Cancel transfer</button></div>`;
     dialog.append(panel);
     panel.querySelector('#recognize-amount').textContent=money(payload.amountCents/100);
     panel.querySelector('#recognize-recipient').textContent=payload.recipientAccountNumber;
-    const enrollOption=panel.querySelector('#recognize-enroll');
-    enrollOption.hidden=hasRecognizeEnrollment();
+    const enrollHelp=panel.querySelector('#recognize-help');
+    enrollHelp.hidden=hasRecognizeEnrollment();
     panel.querySelector('#recognize-cancel').onclick=()=>dialog.close();
     const message=panel.querySelector('#recognize-message'),failure=panel.querySelector('#recognize-error');
     const camera=panel.querySelector('#recognize-camera'),options=panel.querySelector('#recognize-options');
@@ -206,14 +214,14 @@ transfer=function(){
           const proof=event.detail?.jwt;
           camera.replaceChildren();
           if(mode==='enroll'){
-            rememberRecognizeEnrollment();enrollOption.hidden=true;
+            rememberRecognizeEnrollment();enrollHelp.hidden=true;
             message.textContent='Face setup complete. Now confirm this transfer with a new face check.';
             busy=false;
             await start('auth');
             return;
           }
           if(typeof proof!=='string'){failure.textContent='Face verification did not return a confirmation. Please try again.';failure.hidden=false;options.hidden=false;busy=false;panel.classList.remove('recognize-busy');return}
-          rememberRecognizeEnrollment();enrollOption.hidden=true;
+          rememberRecognizeEnrollment();enrollHelp.hidden=true;
           message.textContent='Confirming transfer…';
           try{const data=await bankRequest('POST',{...payload,recognizeJwt:proof});if(!dialog.open)return;applyBankData(data);dialog.close();render();toast('Transfer completed.')}
           catch(error){failure.textContent=error.message;failure.hidden=false;options.hidden=false;busy=false;panel.classList.remove('recognize-busy')}
