@@ -128,11 +128,22 @@ test('profile opens MFA management and preference changes use PingOne device ord
   assert.match(html, /Preferred/);
   assert.match(html, /&lt;unsafe&gt;/);
   assert.doesNotMatch(html, /<unsafe>/);
+  assert.doesNotMatch(html, /data-add-mfa="TOTP"/);
+  assert.doesNotMatch(html, /data-add-mfa="FIDO2"/);
+  assert.match(html, /data-add-mfa="EMAIL"/);
   await context.preferMfaDevice(second);
   assert.equal(reorder.url, `https://api.pingone.sg/v1/environments/22f37616-5cf6-47ee-8111-f0c870cbfa8f/users/${userId}/devices`);
   assert.equal(reorder.options.headers['Content-Type'], 'application/vnd.pingidentity.devices.reorder+json');
   assert.deepEqual(JSON.parse(reorder.options.body), { order: [{ id: second }, { id: first }] });
   context.document = undefined;
+  evaluate('session=null');
+});
+
+test('MFA add section hides every method already enrolled', () => {
+  evaluate(`session={mode:'pingone',user:{sub:'fa15fe35-b52a-4240-a22f-59274a2fa72a',email:'user@example.com'},mfaReady:true,mfaDevices:[{id:'11111111-1111-4111-8111-111111111111',type:'TOTP',status:'ACTIVE'},{id:'22222222-2222-4222-8222-222222222222',type:'FIDO2',status:'ACTIVE'},{id:'33333333-3333-4333-8333-333333333333',type:'EMAIL',status:'ACTIVE'}],mfaOrder:[]}`);
+  const html = evaluate('mfaPage()');
+  assert.match(html, /All available methods are already enrolled/);
+  assert.doesNotMatch(html, /data-add-mfa=/);
   evaluate('session=null');
 });
 
