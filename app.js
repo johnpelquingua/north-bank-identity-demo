@@ -34,7 +34,7 @@ function csvRows(rows){return ['Description,Type,Date,Amount (PHP)',...rows.map(
 function exportCSV(){const csv=csvRows(transactions);const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='north-bank-sample-transactions.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Sample activity exported.')}
 function validateIssuer(s){const u=new URL(s);if(u.protocol!=='https:'||!/^auth\.pingone\.(com|eu|asia|com\.au|ca|sg)$/.test(u.hostname)||!/^\/[a-zA-Z0-9-]+\/as$/.test(u.pathname)||u.search||u.hash||u.username||u.password||u.port)throw Error('Enter a valid PingOne regional issuer URL ending in /ENVIRONMENT_ID/as.');return u}
 function allowedEndpoint(s){const u=new URL(s),i=validateIssuer(config.issuer);if(u.origin!==i.origin||!u.pathname.startsWith(i.pathname+'/')||u.username||u.password)throw Error('Discovery returned an unexpected endpoint.');return u.href}
-async function getJSON(url,options){const r=await fetch(url,{...options,signal:AbortSignal.timeout(20000)});if(!r.ok)throw Error('PingOne request failed ('+r.status+'). Check application settings, region, and CORS.');return r.json()}
+async function getJSON(url,options){const target=new URL(url);let r;try{r=await fetch(url,{...options,signal:AbortSignal.timeout(20000)})}catch{throw Error('Browser could not reach '+target.hostname+target.pathname+'. Check the North Bank app’s PingOne CORS origin and the browser Network tab.')}if(!r.ok)throw Error('PingOne request to '+target.pathname+' failed ('+r.status+'). Check application settings and scopes.');return r.json()}
 async function discovery(){validateIssuer(config.issuer);const d=await getJSON(config.issuer+'/.well-known/openid-configuration');if(d.issuer!==config.issuer)throw Error('Issuer mismatch in discovery.');['authorization_endpoint','token_endpoint','userinfo_endpoint','jwks_uri'].forEach(k=>allowedEndpoint(d[k]));if(d.end_session_endpoint)allowedEndpoint(d.end_session_endpoint);return d}
 const b64=bytes=>btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'');
 const random=()=>b64(crypto.getRandomValues(new Uint8Array(32)));
@@ -63,7 +63,9 @@ function mfaDeviceUrl(userId,deviceId){
 }
 async function mfaApi(url,options={}){
   if(!session?.accessToken)throw Error('Sign in again to manage your authenticator.');
-  const response=await fetch(url,{...options,headers:{Authorization:'Bearer '+session.accessToken,...options.headers},credentials:'omit',cache:'no-store',redirect:'error',signal:AbortSignal.timeout(20000)});
+  let response;
+  try{response=await fetch(url,{...options,headers:{Authorization:'Bearer '+session.accessToken,...options.headers},credentials:'omit',cache:'no-store',redirect:'error',signal:AbortSignal.timeout(20000)})}
+  catch{throw Error('Browser could not reach the PingOne MFA API at '+new URL(url).hostname+'. Check North Bank Web CIAM → Configuration → CORS Settings for this page’s exact origin.');}
   if(!response.ok)throw Error(response.status===401||response.status===403?'PingOne rejected this method. Check its MFA policy, pairing permission, and application self-service scopes.':'PingOne could not complete authenticator setup ('+response.status+').');
   return response.json();
 }
