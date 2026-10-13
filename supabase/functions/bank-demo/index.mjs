@@ -100,6 +100,21 @@ async function accountView(account, fetcher, getEnv) {
   return { account: { accountNumber: account.account_number, displayName: account.display_name, balanceCents: account.balance_cents }, history };
 }
 
+async function recognizeChallenge(claims, transactionData, getEnv, cryptoApi) {
+  const customer = getEnv('RECOGNIZE_CUSTOMER_NAME');
+  const serviceUrl = getEnv('RECOGNIZE_AUTH_SERVICE_URL');
+  if (getEnv('RECOGNIZE_ENABLED') !== 'true' || !customer ||
+      !/^https:\/\/[^/]+\/?$/.test(serviceUrl || '') || !getEnv('RECOGNIZE_JWKS_URL')) {
+    throw new BankError('Face verification is not ready. Your transfer was not sent.', 503);
+  }
+  try {
+    return { customer, serviceUrl, username: claims.sub, transactionData,
+      authorizationToken: await authorizeRecognizeUser(claims.sub, getEnv, cryptoApi) };
+  } catch {
+    throw new BankError('Face verification is not ready. Your transfer was not sent.', 503);
+  }
+}
+
 export async function handleBankRequest(request, dependencies = {}) {
   const origin = request.headers.get('Origin');
   const fetcher = dependencies.fetcher || fetch;
@@ -130,6 +145,9 @@ export async function handleBankRequest(request, dependencies = {}) {
       issuer: ISSUER, subject: claims.sub, recipientAccountNumber: input.recipientAccountNumber,
       amountCents: input.amountCents, requestId: input.requestId,
     });
+    if (input.action === 'recognize-challenge') {
+      return response({ recognize: await recognizeChallenge(claims, transactionData, getEnv, cryptoApi) }, 200, origin);
+    }
     let faceVerified = false;
     if (input.recognizeJwt !== undefined) {
       if (getEnv('RECOGNIZE_ENABLED') !== 'true') throw new BankError('Face verification is not ready.', 503);
@@ -143,17 +161,8 @@ export async function handleBankRequest(request, dependencies = {}) {
     }, fetcher, getEnv); }
     catch (error) {
       if (error.code !== 'RECOGNIZE_REQUIRED') throw error;
-      const customer = getEnv('RECOGNIZE_CUSTOMER_NAME');
-      const serviceUrl = getEnv('RECOGNIZE_AUTH_SERVICE_URL');
-      if (getEnv('RECOGNIZE_ENABLED') !== 'true' || !customer ||
-          !/^https:\/\/[^/]+\/?$/.test(serviceUrl || '')) {
-        throw new BankError('Face verification is not ready. Your transfer was not sent.', 503);
-      }
-      let authorizationToken;
-      try { authorizationToken = await authorizeRecognizeUser(claims.sub, getEnv, cryptoApi); }
-      catch { throw new BankError('Face verification is not ready. Your transfer was not sent.', 503); }
       return response({ code: 'RECOGNIZE_REQUIRED', error: error.message,
-        recognize: { customer, serviceUrl, username: claims.sub, transactionData, authorizationToken } }, 428, origin);
+        recognize: await recognizeChallenge(claims, transactionData, getEnv, cryptoApi) }, 428, origin);
     }
     const refreshed = await rpc('ensure_demo_account', { p_issuer: ISSUER, p_subject: claims.sub, p_display_name: label }, fetcher, getEnv);
     return response({ receipt, ...await accountView(refreshed[0], fetcher, getEnv) }, 200, origin);
