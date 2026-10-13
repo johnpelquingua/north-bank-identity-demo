@@ -56,3 +56,26 @@ test('user authorization token identifies the signed-in user and publishes only 
     Buffer.from(jwt.split('.')[2], 'base64url'), enc.encode(jwt.split('.').slice(0, 2).join('.'))), true);
 });
 
+test('public Recognize key endpoint never returns the private key', async () => {
+  let handler;
+  const originalDeno = globalThis.Deno;
+  globalThis.Deno = {
+    serve: callback => { handler = callback; },
+    env: { get: name => ({
+      RECOGNIZE_AUTH_PRIVATE_JWK: JSON.stringify({ kty: 'RSA', n: 'public-modulus', e: 'AQAB', d: 'private-exponent' }),
+      RECOGNIZE_AUTH_KEY_ID: 'key-1',
+    })[name] },
+  };
+  try {
+    await import('../supabase/functions/recognize-jwks/index.mjs');
+    const response = handler();
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.keys[0].n, 'public-modulus');
+    assert.equal(body.keys[0].d, undefined);
+    assert.doesNotMatch(JSON.stringify(body), /private-exponent/);
+  } finally {
+    globalThis.Deno = originalDeno;
+  }
+});
+
