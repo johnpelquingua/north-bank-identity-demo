@@ -8,3 +8,24 @@
 .login-notice{margin-top:28px;padding-top:18px;border-top:1px solid var(--line);background:transparent}.login-notice .brand{font-size:15px;gap:8px}.login-notice .mark{width:25px;height:25px;border-radius:7px;font-size:16px}.login-notice p{font-size:11px;line-height:1.55;margin:10px 0 0;color:#566660}.login-notice .login-notice-disclosure{font-size:10px;color:var(--muted)}
 .login-inner #change-device{display:inline-flex;align-items:center;justify-content:center;margin-top:16px;max-width:100%}
 .password-field{position:relative;margin-bottom:15px}.login-inner .password-field input{margin-bottom:0;padding-right:52px}.login-inner .password-field .password-toggle{position:absolute;right:7px;top:50%;transform:translateY(-50%);display:grid;place-items:center;width:38px;height:38px;padding:0;border:0;border-radius:7px;background:transparent;color:#657770;cursor:pointer}.login-inner .password-field .password-toggle:hover,.login-inner .password-field .password-toggle:focus-visible{background:#edf5ea;color:var(--green)}.password-toggle svg{display:block;pointer-events:none}.password-toggle .eye-slash{display:none}.password-toggle[aria-pressed="true"] .eye-slash{display:block}
+
+/* Keep the decoration behind the login form and fade it before the fields. */
+.login-form{
+  position:relative;
+  isolation:isolate;
+  overflow:hidden;
+  background:radial-gradient(ellipse 75% 58% at 50% 47%,rgba(211,231,208,.34),transparent 73%),#f5f7f5;
+}
+.login-form::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  z-index:0;
+  pointer-events:none;
+  background:
+    radial-gradient(circle at 107% -9%,transparent 260px,rgba(23,63,54,.075) 261px 262px,transparent 263px 350px,rgba(23,63,54,.065) 351px 352px,transparent 353px),
+    radial-gradient(circle at 108% 110%,transparent 235px,rgba(23,63,54,.075) 236px 237px,transparent 238px 330px,rgba(23,63,54,.065) 331px 332px,transparent 333px);
+  -webkit-mask-image:linear-gradient(to right,transparent 48%,#000 96%);
+  mask-image:linear-gradient(to right,transparent 48%,#000 96%);
+}
+.login-form>.login-inner{position:relative;z-index:1}
