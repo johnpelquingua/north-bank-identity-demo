@@ -46,4 +46,17 @@ test('bank API derives the sender from the signed token and sends no service key
   assert.equal(response.headers.get('access-control-allow-origin'),'https://johnpelquingua.github.io');
   assert.equal(response.headers.get('apikey'),null);
 });
+test('a face-required transfer fails closed when Recognize is not configured',async()=>{
+  const f=await setup();
+  const fetcher=async(url,options)=>{
+    if(url.endsWith('/make_demo_transfer'))return Response.json({message:'RECOGNIZE_REQUIRED'},{status:400});
+    return f.dependencies.fetcher(url,options);
+  };
+  const response=await f.handleBankRequest(new Request('https://bank.test',{method:'POST',headers:{
+    Authorization:'Bearer '+await f.token('alice'),Origin:'https://johnpelquingua.github.io',
+  },body:JSON.stringify({recipientAccountNumber:'7000000002',amountCents:2000000,
+    requestId:'3085575d-44c0-4e3a-84eb-97f6de1a0d86'})}),{...f.dependencies,fetcher});
+  assert.equal(response.status,503);
+  assert.match((await response.json()).error,/not ready/);
+});
 
