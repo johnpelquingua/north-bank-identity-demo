@@ -1,10 +1,11 @@
 // North Bank fictional transfer API. No real funds or payment rails are involved.
+import { authorizationJwks, authorizeRecognizeUser, recognizeTransactionData, verifyRecognizeProof } from './recognize.mjs';
 const ISSUER = 'https://auth.pingone.sg/22f37616-5cf6-47ee-8111-f0c870cbfa8f/as';
 const CLIENT_ID = 'b62c72a0-1d23-4351-8f67-77054a795169';
 const ALLOWED_ORIGINS = new Set(['https://johnpelquingua.github.io', 'http://localhost:8080']);
 
 class BankError extends Error {
-  constructor(message, status = 400) { super(message); this.status = status; }
+  constructor(message, status = 400, code = '') { super(message); this.status = status; this.code = code; }
 }
 
 const decodeBase64Url = value => Uint8Array.from(atob(value.replaceAll('-', '+').replaceAll('_', '/') + '='.repeat((4 - value.length % 4) % 4)), c => c.charCodeAt(0));
@@ -85,9 +86,10 @@ async function rpc(name, payload, fetcher, getEnv) {
       SAME_ACCOUNT: ['Choose another account.', 400],
       INSUFFICIENT_FUNDS: ['Insufficient sample balance.', 400],
       REQUEST_ID_REUSED: ['This transfer request has already been used.', 409],
+      RECOGNIZE_REQUIRED: ['Face verification is needed to continue.', 428],
     };
     const match = Object.entries(known).find(([code]) => detail.message?.includes(code));
-    if (match) throw new BankError(...match[1]);
+    if (match) throw new BankError(...match[1], match[0]);
     throw new BankError('Transfer service is temporarily unavailable.', 503);
   }
   return result.json();
@@ -107,6 +109,9 @@ export async function handleBankRequest(request, dependencies = {}) {
   if (request.method === 'OPTIONS') return response({}, 200, origin);
   if (request.method !== 'GET' && request.method !== 'POST') return response({ error: 'Method not allowed.' }, 405, origin);
   try {
+    if (request.method === 'GET' && new URL(request.url).searchParams.get('jwks') === '1') {
+      return response(authorizationJwks(getEnv), 200, origin);
+    }
     const match = /^Bearer (\S+)$/.exec(request.headers.get('Authorization') || '');
     if (!match) throw new BankError('Sign in again.', 401);
     const claims = await verifyPingOneToken(match[1], fetcher, cryptoApi);
@@ -116,7 +121,7 @@ export async function handleBankRequest(request, dependencies = {}) {
     if (!account) throw new BankError('Transfer service is temporarily unavailable.', 503);
     if (request.method === 'GET') return response(await accountView(account, fetcher, getEnv), 200, origin);
     const raw = await request.text();
-    if (raw.length > 2000) throw new BankError('Transfer request is too large.', 400);
+    if (raw.length > 15000) throw new BankError('Transfer request is too large.', 400);
     let input;
     try { input = JSON.parse(raw); } catch { throw new BankError('Enter a valid transfer.', 400); }
     if (!/^\d{10}$/.test(input?.recipientAccountNumber || '') ||
@@ -124,14 +129,39 @@ export async function handleBankRequest(request, dependencies = {}) {
         !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input?.requestId || '')) {
       throw new BankError('Enter a valid account number and amount.', 400);
     }
-    const receipt = await rpc('make_demo_transfer', {
+    const transactionData = recognizeTransactionData({
+      issuer: ISSUER, subject: claims.sub, recipientAccountNumber: input.recipientAccountNumber,
+      amountCents: input.amountCents, requestId: input.requestId,
+    });
+    let faceVerified = false;
+    if (input.recognizeJwt !== undefined) {
+      if (getEnv('RECOGNIZE_ENABLED') !== 'true') throw new BankError('Face verification is not ready.', 503);
+      try { await verifyRecognizeProof(input.recognizeJwt, transactionData, getEnv, fetcher, cryptoApi); faceVerified = true; }
+      catch { throw new BankError('Face verification could not be confirmed. Please try again.', 403); }
+    }
+    let receipt;
+    try { receipt = await rpc('make_demo_transfer', {
       p_issuer: ISSUER, p_sender_subject: claims.sub, p_recipient_account_number: input.recipientAccountNumber,
-      p_amount_cents: input.amountCents, p_request_id: input.requestId,
-    }, fetcher, getEnv);
+      p_amount_cents: input.amountCents, p_request_id: input.requestId, p_face_verified: faceVerified,
+    }, fetcher, getEnv); }
+    catch (error) {
+      if (error.code !== 'RECOGNIZE_REQUIRED') throw error;
+      const customer = getEnv('RECOGNIZE_CUSTOMER_NAME');
+      const serviceUrl = getEnv('RECOGNIZE_AUTH_SERVICE_URL');
+      if (getEnv('RECOGNIZE_ENABLED') !== 'true' || !customer ||
+          !/^https:\/\/[^/]+\/?$/.test(serviceUrl || '')) {
+        throw new BankError('Face verification is not ready. Your transfer was not sent.', 503);
+      }
+      let authorizationToken;
+      try { authorizationToken = await authorizeRecognizeUser(claims.sub, getEnv, cryptoApi); }
+      catch { throw new BankError('Face verification is not ready. Your transfer was not sent.', 503); }
+      return response({ code: 'RECOGNIZE_REQUIRED', error: error.message,
+        recognize: { customer, serviceUrl, username: claims.sub, transactionData, authorizationToken } }, 428, origin);
+    }
     const refreshed = await rpc('ensure_demo_account', { p_issuer: ISSUER, p_subject: claims.sub, p_display_name: label }, fetcher, getEnv);
     return response({ receipt, ...await accountView(refreshed[0], fetcher, getEnv) }, 200, origin);
   } catch (error) {
-    if (error instanceof BankError) return response({ error: error.message }, error.status, origin);
+    if (error instanceof BankError) return response({ error: error.message, code: error.code }, error.status, origin);
     return response({ error: 'Transfer service is temporarily unavailable.' }, 503, origin);
   }
 }
