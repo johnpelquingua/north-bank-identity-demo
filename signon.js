@@ -102,7 +102,7 @@ function renderFlow(flow) {
     case 'OTP_REQUIRED':
       actionEndpoint(flow, 'otp.check', currentFlowUrl);
       showStep('otp-step');
-      status.textContent = 'Enter the verification code sent to your device.';
+      status.textContent = 'Enter the code from your authenticator app or selected verification method.';
       document.querySelector('#otp').value = '';
       setBusy(false);
       break;
