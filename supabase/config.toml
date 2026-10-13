@@ -1,0 +1,4 @@
+[functions.bank-demo]
+verify_jwt = false
+entrypoint = './functions/bank-demo/index.mjs'
+
