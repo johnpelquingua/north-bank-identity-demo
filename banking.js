@@ -1,6 +1,7 @@
 // Shared demo accounts. The URL is public; the service key stays in Supabase.
 const bankApiUrl='https://uxjyitgzrtxgftcpzoxk.supabase.co/functions/v1/bank-demo';
 let bankAccount=null,bankStatus='loading',bankError='';
+let bankHistory=[],statementFrom='',statementTo='';
 const bankInitialBalance=128450.50;
 const bankInitialTransactions=transactions.slice();
 
@@ -29,28 +30,44 @@ function loadRecognizeSdk(){
   }).catch(error=>{recognizeSdkPromise=null;throw error});
   return recognizeSdkPromise;
 }
-function applyBankData(data){
-  if(!data.account||!/^\d{10}$/.test(data.account.accountNumber)||!Number.isSafeInteger(data.account.balanceCents)||!Array.isArray(data.history))throw Error('The account response was incomplete.');
-  bankAccount=data.account;
-  balance=data.account.balanceCents/100;
-  transactions=data.history.map(t=>({
+function bankTransaction(t){
+  return {
     name:String(t.counterparty_name||'Customer'),
     detail:`Transfer · ${t.direction==='INCOMING'?'Incoming':'Outgoing'} · ${String(t.counterparty_account_number||'')}`,
     date:new Date(t.created_at).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}),
     amount:(t.direction==='INCOMING'?1:-1)*Number(t.amount_cents)/100,
     icon:t.direction==='INCOMING'?'↙':'↗'
-  }));
+  };
+}
+function statementDate(value){
+  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Manila',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(value)).map(part=>[part.type,part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+function statementRange(){
+  const today=statementDate(Date.now());
+  return {from:statementFrom|| (bankHistory.length?statementDate(bankHistory[bankHistory.length-1].created_at):today),to:statementTo||today};
+}
+function statementRows(){
+  const {from,to}=statementRange();
+  return bankHistory.filter(t=>{const date=statementDate(t.created_at);return date>=from&&date<=to}).map(bankTransaction);
+}
+function applyBankData(data){
+  if(!data.account||!/^\d{10}$/.test(data.account.accountNumber)||!Number.isSafeInteger(data.account.balanceCents)||!Array.isArray(data.history))throw Error('The account response was incomplete.');
+  bankAccount=data.account;
+  balance=data.account.balanceCents/100;
+  bankHistory=data.history;
+  transactions=bankHistory.map(bankTransaction);
   bankStatus='ready';bankError='';
 }
 async function loadBanking(){
   if(session?.mode!=='pingone'||!session.mfaReady)return;
   const signedIn=session;
   try{const data=await bankRequest('GET');if(session===signedIn)applyBankData(data)}
-  catch(error){if(session===signedIn){bankStatus='error';bankError=error.message;bankAccount=null;transactions=[];balance=0}}
+  catch(error){if(session===signedIn){bankStatus='error';bankError=error.message;bankAccount=null;bankHistory=[];transactions=[];balance=0}}
 }
 
 const originalBankSignout=signout;
-signout=function(){bankAccount=null;bankStatus='loading';bankError='';originalBankSignout();transactions=bankInitialTransactions.slice();balance=bankInitialBalance};
+signout=function(){bankAccount=null;bankStatus='loading';bankError='';bankHistory=[];statementFrom='';statementTo='';originalBankSignout();transactions=bankInitialTransactions.slice();balance=bankInitialBalance};
 const originalBankOverview=overview;
 overview=function(){
   if(session?.mode!=='pingone')return originalBankOverview();
@@ -71,7 +88,39 @@ activity=function(){
   return `<div class="heading"><div><div class="eyebrow muted">${bankStatus==='ready'?`ACCOUNT ${esc(bankAccount.accountNumber)}`:'ACCOUNT'}</div><h1>Transactions</h1><p>Transfers sent and received on this account.</p></div><button class="btn secondary" data-export>↓ Export CSV</button></div>${bankStatus==='error'?`<p class="error" role="alert">${esc(bankError)}</p>`:''}<button class="action" data-bank-refresh type="button">↻ &nbsp; Refresh history</button><section class="card">${transactions.length?txTable(transactions):'<p class="muted">No transfers yet.</p>'}</section>`;
 };
 const originalBankRender=render;
-render=function(){originalBankRender();document.querySelectorAll('[data-bank-refresh]').forEach(button=>button.onclick=async()=>{button.disabled=true;await loadBanking();render()});document.querySelectorAll('[data-copy-account]').forEach(button=>button.onclick=async()=>{if(!bankAccount)return;try{await navigator.clipboard.writeText(bankAccount.accountNumber);toast('Account number copied.')}catch{toast('Select the account number shown on the card to copy it.')}});if(session?.mode==='pingone'&&session.mfaReady&&bankStatus==='loading'){bankStatus='fetching';loadBanking().then(()=>render())}};
+const originalBankStatements=statements;
+statements=function(){
+  if(session?.mode!=='pingone')return originalBankStatements();
+  const ready=bankStatus==='ready',range=statementRange(),rows=ready?statementRows():[];
+  return `<div class="heading"><div><div class="eyebrow muted">ACCOUNT ${ready?esc(bankAccount.accountNumber):'ACTIVITY'}</div><h1>Statements</h1><p>Select a date range to view and export your available transfers.</p></div></div>
+    ${bankStatus==='error'?`<p class="error" role="alert">${esc(bankError)}</p>`:''}
+    <section class="card statement-card"><form id="statement-range" class="statement-filters">
+      <div><label for="statement-from">From</label><input id="statement-from" name="from" type="date" value="${esc(range.from)}" required></div>
+      <div><label for="statement-to">To</label><input id="statement-to" name="to" type="date" value="${esc(range.to)}" required></div>
+      <button class="btn secondary" type="submit" ${ready?'':'disabled'}>Apply dates</button>
+    </form><p class="small muted">This page shows the latest ${bankHistory.length} available transfers. The export includes only transactions shown for your selected dates.${bankHistory.length>=100?' Older transfers are not available in this view.':''}</p>
+    <div class="statement-summary"><span>${rows.length} transaction${rows.length===1?'':'s'} in this range</span><button id="statement-export" class="btn" type="button" ${rows.length?'':'disabled'}>↓ &nbsp; Download CSV</button></div>
+    ${rows.length?txTable(rows):'<p class="muted">No transfers found for these dates.</p>'}</section>`;
+};
+render=function(){
+  originalBankRender();
+  document.querySelectorAll('[data-bank-refresh]').forEach(button=>button.onclick=async()=>{button.disabled=true;await loadBanking();render()});
+  document.querySelectorAll('[data-copy-account]').forEach(button=>button.onclick=async()=>{if(!bankAccount)return;try{await navigator.clipboard.writeText(bankAccount.accountNumber);toast('Account number copied.')}catch{toast('Select the account number shown on the card to copy it.')}});
+  document.querySelector('#statement-range')?.addEventListener('submit',event=>{
+    event.preventDefault();
+    const form=new FormData(event.target),from=String(form.get('from')),to=String(form.get('to'));
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from>to){toast('Choose a valid date range.');return}
+    statementFrom=from;statementTo=to;render();
+  });
+  document.querySelector('#statement-export')?.addEventListener('click',()=>{
+    if(bankStatus!=='ready')return;
+    const rows=statementRows();if(!rows.length)return;
+    const {from,to}=statementRange(),url=URL.createObjectURL(new Blob([csvRows(rows)],{type:'text/csv;charset=utf-8'}));
+    const link=document.createElement('a');link.href=url;link.download=`north-bank-${bankAccount.accountNumber}-${from}-to-${to}.csv`;link.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Statement activity downloaded.');
+  });
+  if(session?.mode==='pingone'&&session.mfaReady&&bankStatus==='loading'){bankStatus='fetching';loadBanking().then(()=>render())}
+};
 
 const originalBankTransfer=transfer;
 transfer=function(){
@@ -160,4 +209,3 @@ transfer=function(){
   };
   dialog.showModal();
 };
-
