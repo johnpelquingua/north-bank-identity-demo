@@ -228,13 +228,19 @@ function renderFlow(flow) {
 }
 
 async function requestFlow(url, options = {}) {
-  const response = await fetch(url, {
-    credentials: 'include',
-    cache: 'no-store',
-    redirect: 'error',
-    signal: AbortSignal.timeout(20000),
-    ...options
-  });
+  let response;
+  try {
+    response = await fetch(url, {
+      credentials: 'include',
+      cache: 'no-store',
+      redirect: 'error',
+      signal: AbortSignal.timeout(20000),
+      ...options
+    });
+  } catch {
+    const endpoint = new URL(url);
+    throw Error(`Browser could not reach ${endpoint.hostname}${endpoint.pathname}. Check this request in the browser Network tab.`);
+  }
   if (!response.ok) {
     const error = Error(response.status === 401 || response.status === 400
       ? 'Those credentials or verification details were not accepted. Try again.'
