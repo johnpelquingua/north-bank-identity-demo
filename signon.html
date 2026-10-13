@@ -30,7 +30,10 @@
           <label for="username">Username</label>
           <input id="username" name="username" autocomplete="username" required>
           <label for="password">Password</label>
-          <input id="password" name="password" type="password" autocomplete="current-password" required>
+          <div class="password-field">
+            <input id="password" name="password" type="password" autocomplete="current-password" required>
+            <button id="toggle-password" class="password-toggle" type="button" aria-controls="password" aria-label="Show password" aria-pressed="false">Show</button>
+          </div>
           <button id="credentials-submit" class="btn wide" type="submit" disabled>Sign in</button>
         </form>
         <form id="otp-step" hidden>
@@ -51,4 +54,3 @@
   </div>
 </body>
 </html>
-
