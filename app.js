@@ -66,7 +66,14 @@ async function mfaApi(url,options={}){
   let response;
   try{response=await fetch(url,{...options,headers:{Authorization:'Bearer '+session.accessToken,...options.headers},credentials:'omit',cache:'no-store',redirect:'error',signal:AbortSignal.timeout(20000)})}
   catch{throw Error('Browser could not reach the PingOne MFA API at '+new URL(url).hostname+'. Check North Bank Web CIAM → Configuration → CORS Settings for this page’s exact origin.');}
-  if(!response.ok)throw Error(response.status===401||response.status===403?'PingOne rejected this method. Check its MFA policy, pairing permission, and application self-service scopes.':'PingOne could not complete authenticator setup ('+response.status+').');
+  if(!response.ok){
+    let failure;
+    try{failure=await response.json()}catch{}
+    const details=Array.isArray(failure?.details)?failure.details:[];
+    const reason=details.slice(0,2).map(detail=>[detail.target,detail.message||detail.code].filter(value=>typeof value==='string'&&value).join(': ')).filter(Boolean).join('; ')||failure?.message||failure?.code;
+    const description=typeof reason==='string'?reason.slice(0,300):'';
+    throw Error('PingOne rejected the verification request ('+response.status+')'+(description?': '+description:'.'));
+  }
   return response.json();
 }
 async function enableUserMfa(){const result=await mfaApi(mfaDeviceUrl(session.user.sub).replace(/\/devices$/,'/mfaEnabled'),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({mfaEnabled:true})});if(result.mfaEnabled!==true)throw Error('PingOne did not enable MFA for this user.')}
