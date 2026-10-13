@@ -2,8 +2,6 @@
 
 A responsive, fictional banking interface for testing **PingOne sign-in backed by Microsoft Active Directory and PingOne MFA**. It includes a login page, account overview, transaction history, profile, simulated transfers, CSV export, and an in-app setup guide.
 
-For a complete rebuild, use the [step by step setup guide](docs/NORTH_BANK_SETUP_RUNBOOK.md). An editable [Word edition](docs/North%20Bank%20Complete%20Setup%20Guide.docx) and a [PDF edition](docs/North%20Bank%20Complete%20Setup%20Guide.pdf) are also available.
-
 App URL after GitHub Pages deployment: https://johnpelquingua.github.io/north-bank-identity-demo/
 
 ## Sign in
@@ -75,7 +73,7 @@ The screenshot's **Mobile Applications** setting says no native mobile applicati
 
 ### Keep the credential form on the main page
 
-1. Under the application's **Configuration → CORS Settings**, select **Allow specific origins** and allow `https://johnpelquingua.github.io`. Keep Authorization Code, PKCE S256, and the existing redirect URI. The Signon URL can remain set to `signon.html`; the inline `pi.flow` path does not navigate there.
+1. Under the application's **Configuration → CORS Settings**, select **Allow specific origins** and allow `https://johnpelquingua.github.io`. Keep Authorization Code, PKCE S256, and the existing redirect URI. For desktop-only inline sign-in, the Signon URL may remain set to `signon.html`; the phone-hosted route below requires it to be blank.
 2. Open the main app in a private browser window. Its AD credential form appears immediately while the PingOne flow starts in the background. Test a valid and invalid AD login and the assigned MFA steps. The form currently handles username/password, OTP, device choice, and push approval. Additional policy steps must be implemented before those steps can be used on this page.
 
 ### Phone-sized sign-in
