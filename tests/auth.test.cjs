@@ -89,6 +89,22 @@ test('profile formats and escapes the OIDC address claim', () => {
   evaluate('session=null');
 });
 
+test('MFA device requests stay in the configured PingOne environment', async () => {
+  const userId = 'fa15fe35-b52a-4240-a22f-59274a2fa72a';
+  evaluate("config={issuer:'https://auth.pingone.sg/22f37616-5cf6-47ee-8111-f0c870cbfa8f/as',clientId:'sample-client'}");
+  assert.equal(evaluate(`mfaDeviceUrl('${userId}')`),
+    `https://api.pingone.sg/v1/environments/22f37616-5cf6-47ee-8111-f0c870cbfa8f/users/${userId}/devices`);
+  assert.throws(() => evaluate("mfaDeviceUrl('../another-user')"), /Invalid MFA device request/);
+  evaluate(`session={mode:'pingone',user:{sub:'${userId}'},accessToken:'test-token',mfaReady:false}`);
+  context.mfaApi = async () => ({ _embedded: { devices: [{ type: 'TOTP', status: 'ACTIVATION_REQUIRED' }] } });
+  await context.loadMfaState();
+  assert.equal(evaluate('session.mfaReady'), false);
+  context.mfaApi = async () => ({ _embedded: { devices: [{ type: 'TOTP', status: 'ACTIVE' }] } });
+  await context.loadMfaState();
+  assert.equal(evaluate('session.mfaReady'), true);
+  evaluate('session=null');
+});
+
 test('opening the main page starts a non-redirect PingOne flow with PKCE', async () => {
   let request;
   let receivedFlow;
@@ -104,8 +120,9 @@ test('opening the main page starts a non-redirect PingOne flow with PKCE', async
   assert.equal(url.searchParams.get('response_type'), 'code');
   assert.equal(url.searchParams.get('prompt'), 'login');
   assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
-  assert.equal(url.searchParams.get('scope'), 'openid profile email phone address');
+  assert.equal(url.searchParams.get('scope'), 'openid profile email phone address p1:read:device p1:create:device p1:update:device p1:update:userMfaEnabled');
   assert.equal(request.options.credentials, 'include');
   assert.equal(receivedFlow, flow);
   assert.equal(JSON.parse(context.pending.value).mode, 'flow');
 });
+
