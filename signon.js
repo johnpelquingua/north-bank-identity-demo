@@ -100,7 +100,12 @@ function ensureMfaControls() {
   parent.insertBefore(fido, notice);
   parent.insertBefore(change, notice);
   fido.querySelector('button').addEventListener('click', verifyFidoAssertion);
-  change.addEventListener('click', () => { clearTimeout(pollTimer); showStep('device-step'); });
+  change.addEventListener('click', () => {
+    clearTimeout(pollTimer);
+    clearError();
+    document.querySelector('#flow-status').textContent = 'Choose how to verify your sign-in.';
+    showStep('device-step');
+  });
 }
 
 function populateDevices(flow) {
