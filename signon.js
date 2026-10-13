@@ -72,9 +72,9 @@ function setPasswordVisible(visible) {
   const toggle = document.querySelector('#toggle-password');
   if (!password || !toggle) return;
   password.type = visible ? 'text' : 'password';
-  toggle.textContent = visible ? 'Hide' : 'Show';
   toggle.setAttribute('aria-label', visible ? 'Hide password' : 'Show password');
   toggle.setAttribute('aria-pressed', String(visible));
+  toggle.title = visible ? 'Hide password' : 'Show password';
 }
 
 function showStep(name) {
