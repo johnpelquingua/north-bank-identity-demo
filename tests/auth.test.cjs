@@ -102,7 +102,17 @@ test('MFA device requests stay in the configured PingOne environment', async () 
   context.mfaApi = async () => ({ _embedded: { devices: [{ type: 'TOTP', status: 'ACTIVE' }] } });
   await context.loadMfaState();
   assert.equal(evaluate('session.mfaReady'), true);
+  context.mfaApi = async () => ({ _embedded: { devices: [{ type: 'FIDO2', status: 'ACTIVE' }] } });
+  await context.loadMfaState();
+  assert.equal(evaluate('session.mfaReady'), true);
   evaluate('session=null');
+});
+
+test('FIDO2 enrollment options retain PingOne challenge bytes', () => {
+  const options = evaluate(`fidoOptions(JSON.stringify({challenge:[-1,2],user:{id:[-128,3]},excludeCredentials:[{type:'public-key',id:[-2,4]}]}))`);
+  assert.deepEqual([...options.challenge], [255, 2]);
+  assert.deepEqual([...options.user.id], [128, 3]);
+  assert.deepEqual([...options.excludeCredentials[0].id], [254, 4]);
 });
 
 test('opening the main page starts a non-redirect PingOne flow with PKCE', async () => {
