@@ -59,4 +59,27 @@ test('a face-required transfer fails closed when Recognize is not configured',as
   assert.equal(response.status,503);
   assert.match((await response.json()).error,/not ready/);
 });
+test('refreshing a face challenge never sends the transfer',async()=>{
+  const f=await setup();f.calls.length=0;
+  const pair=await webcrypto.subtle.generateKey({name:'RSASSA-PKCS1-v1_5',modulusLength:2048,
+    publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['sign','verify']);
+  const privateJwk=await webcrypto.subtle.exportKey('jwk',pair.privateKey);
+  const values={
+    SUPABASE_URL:'https://test.supabase.co',SUPABASE_SECRET_KEYS:JSON.stringify({default:'sb_secret_test'}),
+    RECOGNIZE_ENABLED:'true',RECOGNIZE_CUSTOMER_NAME:'netpoleons_asia',
+    RECOGNIZE_AUTH_SERVICE_URL:'https://authentication-service-sandbox.eks.core-production.keyless.technology/',
+    RECOGNIZE_JWKS_URL:'https://example.test/customers/netpoleons_asia/.well-known/jwks.json',
+    RECOGNIZE_AUTH_PRIVATE_JWK:JSON.stringify(privateJwk),RECOGNIZE_AUTH_KEY_ID:'north-bank-test',
+  };
+  const response=await f.handleBankRequest(new Request('https://bank.test',{method:'POST',headers:{
+    Authorization:'Bearer '+await f.token('alice'),Origin:'https://johnpelquingua.github.io',
+  },body:JSON.stringify({action:'recognize-challenge',recipientAccountNumber:'7000000002',
+    amountCents:2000000,requestId:'3085575d-44c0-4e3a-84eb-97f6de1a0d86'})}),
+  {...f.dependencies,getEnv:name=>values[name]});
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.equal(body.recognize.username,'alice');
+  assert.ok(body.recognize.authorizationToken.split('.').length===3);
+  assert.equal(f.calls.some(call=>call.url.endsWith('/make_demo_transfer')),false);
+});
 
