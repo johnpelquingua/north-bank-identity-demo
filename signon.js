@@ -68,23 +68,103 @@ function clearError() {
 }
 
 function showStep(name) {
-  for (const id of ['credentials', 'otp-step', 'device-step', 'push-step']) {
+  for (const id of ['credentials', 'otp-step', 'device-step', 'push-step', 'fido-step']) {
     document.getElementById(id).hidden = id !== name;
   }
+}
+
+function ensureMfaControls() {
+  if (document.querySelector('#fido-step')) return;
+  const parent = document.querySelector('#push-step').parentElement;
+  const fido = document.createElement('div');
+  fido.id = 'fido-step';
+  fido.hidden = true;
+  fido.innerHTML = '<p>Use your passkey, security key, or device biometrics.</p><button class="btn wide" id="fido-verify" type="button">Verify with passkey or security key</button>';
+  const change = document.createElement('button');
+  change.id = 'change-device';
+  change.className = 'action';
+  change.type = 'button';
+  change.textContent = 'Use another verification method';
+  change.hidden = true;
+  parent.insertBefore(fido, document.querySelector('.signon-help'));
+  parent.insertBefore(change, document.querySelector('.signon-help'));
+  fido.querySelector('button').addEventListener('click', verifyFidoAssertion);
+  change.addEventListener('click', () => { clearTimeout(pollTimer); showStep('device-step'); });
+}
+
+function populateDevices(flow) {
+  const select = document.querySelector('#device');
+  select.replaceChildren();
+  for (const device of flow._embedded?.devices || []) {
+    if (!uuid.test(device.id || '')) continue;
+    const option = document.createElement('option');
+    option.value = device.id;
+    const label = { TOTP: 'Authenticator app', FIDO2: 'Passkey or security key', MOBILE: 'Mobile app' }[device.type] || device.type;
+    option.textContent = [label, device.nickname || device.phone || device.email || ''].filter(Boolean).join(' · ');
+    select.append(option);
+  }
+  return select.options.length;
+}
+
+function bytes(value) {
+  if (Array.isArray(value)) return Uint8Array.from(value.map(byte => byte & 255));
+  if (typeof value !== 'string') throw Error('PingOne returned invalid passkey options.');
+  const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')), char => char.charCodeAt(0));
+}
+
+function base64(buffer) {
+  return btoa(String.fromCharCode(...new Uint8Array(buffer)));
+}
+
+function requestCredentialOptions(raw) {
+  const options = JSON.parse(raw);
+  options.challenge = bytes(options.challenge);
+  options.allowCredentials = (options.allowCredentials || []).map(item => ({ ...item, id: bytes(item.id) }));
+  return options;
+}
+
+function credentialAssertion(credential) {
+  return JSON.stringify({
+    id: credential.id, type: credential.type, rawId: base64(credential.rawId),
+    response: {
+      clientDataJSON: base64(credential.response.clientDataJSON),
+      authenticatorData: base64(credential.response.authenticatorData),
+      signature: base64(credential.response.signature),
+      userHandle: credential.response.userHandle ? base64(credential.response.userHandle) : null
+    },
+    clientExtensionResults: credential.getClientExtensionResults()
+  });
+}
+
+async function verifyFidoAssertion() {
+  try {
+    if (!navigator.credentials?.get || !currentFlow?.publicKeyCredentialRequestOptions) throw Error('This browser cannot use passkeys for this sign-in.');
+    const publicKey = requestCredentialOptions(currentFlow.publicKeyCredentialRequestOptions);
+    const credential = await navigator.credentials.get({ publicKey });
+    if (!credential) return;
+    await submitFlow('assertion.check', 'assertion.check', { origin: location.origin, assertion: credentialAssertion(credential), compatibility: 'FULL' });
+  } catch (error) { showError(error.message); }
 }
 
 function setBusy(value) {
   busy = value;
   document.querySelectorAll('form button').forEach(button => { button.disabled = value; });
+  const fidoButton = document.querySelector('#fido-verify');
+  if (fidoButton) fidoButton.disabled = value;
 }
 
 function renderFlow(flow) {
+  ensureMfaControls();
   clearTimeout(pollTimer);
   currentFlow = flow;
   clearError();
   const status = document.querySelector('#flow-status');
   const restart = document.querySelector('#restart');
   restart.hidden = true;
+  const deviceCount = populateDevices(flow);
+  const canSwitch = deviceCount > 1 && flow._links?.['device.select']?.href === currentFlowUrl;
+  document.querySelector('#change-device').hidden = !canSwitch;
   switch (flow.status) {
     case 'USERNAME_PASSWORD_REQUIRED':
     case 'PASSWORD_REQUIRED':
@@ -108,21 +188,18 @@ function renderFlow(flow) {
       break;
     case 'DEVICE_SELECTION_REQUIRED': {
       actionEndpoint(flow, 'device.select', currentFlowUrl);
-      const select = document.querySelector('#device');
-      select.replaceChildren();
-      for (const device of flow._embedded?.devices || []) {
-        if (!uuid.test(device.id || '')) continue;
-        const option = document.createElement('option');
-        option.value = device.id;
-        option.textContent = [device.type, device.phone || device.email || ''].filter(Boolean).join(' · ');
-        select.append(option);
-      }
-      if (!select.options.length) throw Error('No supported verification device is available.');
+      if (!deviceCount) throw Error('No supported verification device is available.');
       showStep('device-step');
       status.textContent = 'Choose how to verify your sign-in.';
       setBusy(false);
       break;
     }
+    case 'ASSERTION_REQUIRED':
+      actionEndpoint(flow, 'assertion.check', currentFlowUrl);
+      showStep('fido-step');
+      status.textContent = 'Verify with your passkey or security key.';
+      setBusy(false);
+      break;
     case 'PUSH_CONFIRMATION_REQUIRED':
       showStep('push-step');
       status.textContent = 'Waiting for approval on your device…';
@@ -250,5 +327,5 @@ if (typeof document !== 'undefined') {
   });
 }
 
-if (typeof module !== 'undefined') module.exports = { flowEndpoint, signonRequest, validatedFlowEndpoint, actionEndpoint, resumeEndpoint };
+if (typeof module !== 'undefined') module.exports = { flowEndpoint, signonRequest, validatedFlowEndpoint, actionEndpoint, resumeEndpoint, requestCredentialOptions };
 
