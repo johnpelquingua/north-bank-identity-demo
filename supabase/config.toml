@@ -2,3 +2,7 @@
 verify_jwt = false
 entrypoint = './functions/bank-demo/index.mjs'
 
+[functions.recognize-jwks]
+verify_jwt = false
+entrypoint = './functions/recognize-jwks/index.mjs'
+
