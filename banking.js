@@ -100,6 +100,9 @@ transfer=function(){
       if(busy||!dialog.open)return;
       busy=true;failure.hidden=true;options.hidden=true;message.textContent='Opening camera…';
       try{
+        const refreshed=await bankRequest('POST',{...payload,action:'recognize-challenge'});
+        challenge=refreshed.recognize;
+        if(!challenge?.authorizationToken)throw Error('Face verification could not start.');
         await loadRecognizeSdk();
         if(!dialog.open)return;
         camera.replaceChildren();
@@ -128,11 +131,8 @@ transfer=function(){
           camera.replaceChildren();
           if(mode==='enroll'){
             message.textContent='Face setup complete. Now confirm this transfer with a new face check.';
-            try{await bankRequest('POST',payload);message.textContent='This transfer no longer needs a face check.';dialog.close();await loadBanking();render();toast('Transfer completed.')}
-            catch(error){
-              if(error.code==='RECOGNIZE_REQUIRED'&&error.recognize){challenge=error.recognize;busy=false;await start('auth')}
-              else{failure.textContent=error.message;failure.hidden=false;options.hidden=false;busy=false}
-            }
+            busy=false;
+            await start('auth');
             return;
           }
           if(typeof proof!=='string'){failure.textContent='Face verification did not return a confirmation. Please try again.';failure.hidden=false;options.hidden=false;busy=false;return}
