@@ -92,9 +92,17 @@ function isRejectedMfaCheck(action, error) {
 
 function mfaAttemptMessage(failures) {
   if (!failures) return '';
-  if (failures >= MFA_ATTEMPT_LIMIT) return 'Three verification attempts failed on this page. Your account may be temporarily locked.';
+  if (failures >= MFA_ATTEMPT_LIMIT) return 'Three verification attempts failed on this page. Start sign-in again to check whether PingOne allows another attempt.';
   const remaining = MFA_ATTEMPT_LIMIT - failures;
   return `Up to ${remaining} verification attempt${remaining === 1 ? '' : 's'} left. Attempts in another session may reduce this number.`;
+}
+
+function failedFlowNotice(flow, previousStatus, failures) {
+  if (flow?.error?.code === 'NO_USABLE_DEVICES') return 'No verification method is currently available. Your method may be temporarily locked.';
+  if (failures > 0 || ['OTP_REQUIRED', 'ASSERTION_REQUIRED', 'PUSH_CONFIRMATION_REQUIRED'].includes(previousStatus)) {
+    return 'Verification stopped. Start sign-in again. If PingOne locked your account, try again after the lock period.';
+  }
+  return '';
 }
 
 function updateMfaNotice(message = mfaAttemptMessage(mfaFailures), locked = false) {
@@ -222,6 +230,7 @@ function setBusy(value) {
 function renderFlow(flow) {
   ensureMfaControls();
   clearTimeout(pollTimer);
+  const previousStatus = currentFlow?.status;
   currentFlow = flow;
   clearError();
   const status = document.querySelector('#flow-status');
@@ -287,12 +296,15 @@ function renderFlow(flow) {
       else location.assign(resumeEndpoint(flow, new URLSearchParams(location.search).get('flowId')));
       break;
     case 'FAILED':
-    case 'PUSH_CONFIRMATION_TIMED_OUT':
       showStep('');
       status.textContent = 'Sign-in could not be completed.';
-      if (flow.error?.code === 'NO_USABLE_DEVICES') {
-        updateMfaNotice('No verification method is currently available. Your method may be temporarily locked.', true);
-      }
+      updateMfaNotice(failedFlowNotice(flow, previousStatus, mfaFailures), flow.error?.code === 'NO_USABLE_DEVICES');
+      restart.hidden = false;
+      break;
+    case 'PUSH_CONFIRMATION_TIMED_OUT':
+      showStep('');
+      status.textContent = 'Your verification request timed out.';
+      updateMfaNotice('', false);
       restart.hidden = false;
       break;
     default:
@@ -377,13 +389,17 @@ async function submitFlow(action, mediaType, payload) {
   } catch (error) {
     // A failed credential check can leave the same flow available for retry.
     let flowLocked = false;
+    let flowEnded = false;
     try {
       const latest = await requestFlow(currentFlowUrl);
       renderFlow(latest);
       flowLocked = isAccountLocked(latest);
+      flowEnded = ['FAILED', 'PUSH_CONFIRMATION_TIMED_OUT'].includes(latest.status);
     } catch { /* Retry uses current state. */ }
     if (flowLocked || isAccountLocked(error)) {
       showLockout();
+    } else if (flowEnded) {
+      // PingOne ended the flow. Never replace its terminal notice with a stale estimate.
     } else if (isRejectedMfaCheck(action, error)) {
       mfaFailures = Math.min(MFA_ATTEMPT_LIMIT, mfaFailures + 1);
       updateMfaNotice(Number.isInteger(error.attemptsRemaining) && error.attemptsRemaining >= 0 && error.attemptsRemaining <= MFA_ATTEMPT_LIMIT
@@ -449,4 +465,4 @@ if (typeof document !== 'undefined') {
   });
 }
 
-if (typeof module !== 'undefined') module.exports = { flowEndpoint, signonRequest, validatedFlowEndpoint, actionEndpoint, resumeEndpoint, requestCredentialOptions, isAccountLocked, isRejectedMfaCheck, mfaAttemptMessage };
+if (typeof module !== 'undefined') module.exports = { flowEndpoint, signonRequest, validatedFlowEndpoint, actionEndpoint, resumeEndpoint, requestCredentialOptions, isAccountLocked, isRejectedMfaCheck, mfaAttemptMessage, failedFlowNotice };

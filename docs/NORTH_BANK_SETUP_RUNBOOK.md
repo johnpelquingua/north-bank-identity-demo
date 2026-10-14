@@ -169,6 +169,8 @@ The gateway is **outside the AD VM** in this build. It can be a separate Windows
 5. Test with a disposable user: submit a wrong TOTP once, a wrong email code once, then a wrong code once more. Confirm PingOne reports the account as locked and rejects a fresh sign-in with any method. Check its authentication events. Do not use a production user for this test.
 6. To recover early, go to **Directory → Users**, find the account, and unlock it with the account toggle. If a method is separately locked, open the user's **Services → Authentication → Methods**, use the affected method's menu, and select **Unlock**. Otherwise, wait for the 30-second account lock to expire.
 
+If PingOne ends the sign-in after three wrong checks but the same user can immediately authenticate in a new flow, the account is not locked. Confirm the MFA Settings were saved in the same environment, then inspect the **MFA policy actually assigned to North Bank**. Under **User Access Configuration**, **Skip account lockout verification** must be off; when enabled, PingOne applies the policy even to a locked user. Check the affected user's account and method status in **Directory → Users** and compare the three failures with PingOne authentication events. The website cannot turn a terminated flow into an account-wide lock.
+
 The login page warns **up to 2** attempts remain after one failed MFA check it observed and **up to 1** after two. PingOne is the source of truth for the account counter; the browser cannot see failed attempts from another browser or an earlier flow. Wrong AD passwords use the AD/password authority lockout policy and are separate from this MFA setting.
 
 ## 7  Publish the North Bank website

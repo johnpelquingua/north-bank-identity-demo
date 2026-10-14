@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { flowEndpoint, signonRequest, validatedFlowEndpoint, actionEndpoint, resumeEndpoint, requestCredentialOptions, isAccountLocked, isRejectedMfaCheck, mfaAttemptMessage } = require('../signon.js');
+const { flowEndpoint, signonRequest, validatedFlowEndpoint, actionEndpoint, resumeEndpoint, requestCredentialOptions, isAccountLocked, isRejectedMfaCheck, mfaAttemptMessage, failedFlowNotice } = require('../signon.js');
 
 const id = '0370bd50-0f2a-4749-afd4-195a63553372';
 const expected = `https://auth.pingone.sg/22f37616-5cf6-47ee-8111-f0c870cbfa8f/flows/${id}`;
@@ -58,4 +58,12 @@ test('PingOne account lockout is recognised without treating a method lock as ac
   assert.equal(isAccountLocked({ pingFlowCode: 'ACCOUNT_LOCKED_OUT' }), true);
   assert.equal(isAccountLocked({ error: { code: 'ACCOUNT_LOCKED_OUT' } }), true);
   assert.equal(isAccountLocked({ error: { code: 'NO_USABLE_DEVICES' } }), false);
+});
+
+test('a terminated MFA flow never advertises a remaining attempt', () => {
+  const notice = failedFlowNotice({ status: 'FAILED' }, 'OTP_REQUIRED', 2);
+  assert.match(notice, /Verification stopped/);
+  assert.doesNotMatch(notice, /attempt.*left/);
+  assert.equal(failedFlowNotice({ status: 'FAILED' }, 'USERNAME_PASSWORD_REQUIRED', 0), '');
+  assert.match(failedFlowNotice({ status: 'FAILED', error: { code: 'NO_USABLE_DEVICES' } }, 'OTP_REQUIRED', 2), /No verification method/);
 });
