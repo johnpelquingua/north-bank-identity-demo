@@ -29,3 +29,8 @@
   mask-image:linear-gradient(to right,transparent 48%,#000 96%);
 }
 .login-form>.login-inner{position:relative;z-index:1}
+
+.mfa-attempt-notice{margin:16px 0 4px;padding:13px 15px;border:1px solid #e5bf91;border-radius:9px;background:#fff8ed;color:#754315;font-size:13px;line-height:1.5}
+.mfa-attempt-notice.is-locked{border-color:#edb9b1;background:#fff3f1;color:#9a3329}
+.unlock-help{margin:10px 0 18px;padding:13px 15px;border:1px solid #d8e2d8;border-radius:9px;background:#f4f8f2;color:#344b40;font-size:12px;line-height:1.6}
+.unlock-help strong{display:block;margin-bottom:3px;font-size:13px}

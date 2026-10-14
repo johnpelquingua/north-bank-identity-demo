@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { flowEndpoint, signonRequest, validatedFlowEndpoint, actionEndpoint, resumeEndpoint, requestCredentialOptions } = require('../signon.js');
+const { flowEndpoint, signonRequest, validatedFlowEndpoint, actionEndpoint, resumeEndpoint, requestCredentialOptions, isAccountLocked, isRejectedMfaCheck, mfaAttemptMessage } = require('../signon.js');
 
 const id = '0370bd50-0f2a-4749-afd4-195a63553372';
 const expected = `https://auth.pingone.sg/22f37616-5cf6-47ee-8111-f0c870cbfa8f/flows/${id}`;
@@ -42,3 +42,20 @@ test('FIDO2 challenge bytes are converted for the browser credential API', () =>
   assert.deepEqual([...options.allowCredentials[0].id], [128, 1]);
 });
 
+test('MFA attempts are counted across methods only after PingOne rejects a verification', () => {
+  assert.equal(mfaAttemptMessage(1), 'Up to 2 verification attempts left. Attempts in another session may reduce this number.');
+  assert.equal(mfaAttemptMessage(2), 'Up to 1 verification attempt left. Attempts in another session may reduce this number.');
+  assert.match(mfaAttemptMessage(3), /Three verification attempts failed/);
+  assert.equal(isRejectedMfaCheck('otp.check', { status: 400, pingDetailCodes: ['INVALID_OTP'] }), true);
+  assert.equal(isRejectedMfaCheck('assertion.check', { status: 400, pingDetailCodes: ['INVALID_ASSERTION'] }), true);
+  assert.equal(isRejectedMfaCheck('otp.check', { status: 400, pingDetailCodes: ['INVALID_VALUE'], pingTargets: ['ST'] }), false);
+  assert.equal(isRejectedMfaCheck('assertion.check', { status: 0 }), false);
+  assert.equal(isRejectedMfaCheck('device.select', { status: 400, pingDetailCodes: ['INVALID_VALUE'] }), false);
+});
+
+test('PingOne account lockout is recognised without treating a method lock as account lockout', () => {
+  assert.equal(isAccountLocked({ pingDetailCodes: ['ACCOUNT_LOCKED_OUT'] }), true);
+  assert.equal(isAccountLocked({ pingFlowCode: 'ACCOUNT_LOCKED_OUT' }), true);
+  assert.equal(isAccountLocked({ error: { code: 'ACCOUNT_LOCKED_OUT' } }), true);
+  assert.equal(isAccountLocked({ error: { code: 'NO_USABLE_DEVICES' } }), false);
+});

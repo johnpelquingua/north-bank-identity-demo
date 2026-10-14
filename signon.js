@@ -10,6 +10,9 @@ let currentFlowUrl;
 let inlineFlowId;
 let pollTimer;
 let busy = false;
+let mfaFailures = 0;
+const MFA_ATTEMPT_LIMIT = 3;
+const LOCK_CODES = new Set(['ACCOUNT_LOCKED_OUT', 'ACCOUNT_LOCKED', 'USER_LOCKED_OUT']);
 
 function flowEndpoint(id) {
   if (!uuid.test(id || '')) throw Error('Invalid sign-in request.');
@@ -34,6 +37,8 @@ function validatedFlowEndpoint(flow) {
 function beginFlow(flow) {
   currentFlowUrl = validatedFlowEndpoint(flow);
   inlineFlowId = flow.id;
+  mfaFailures = 0;
+  updateMfaNotice();
   renderFlow(flow);
 }
 
@@ -65,6 +70,49 @@ function clearError() {
   const box = document.querySelector('#flow-error');
   box.textContent = '';
   box.hidden = true;
+}
+
+function errorCodes(value) {
+  return [value?.pingCode, value?.pingFlowCode, ...(value?.pingDetailCodes || []), value?.error?.code]
+    .filter(code => typeof code === 'string');
+}
+
+function isAccountLocked(value) {
+  return errorCodes(value).some(code => LOCK_CODES.has(code));
+}
+
+function isRejectedMfaCheck(action, error) {
+  if (!['otp.check', 'assertion.check'].includes(action) || ![400, 401].includes(error?.status)) return false;
+  if (isAccountLocked(error) || error.pingTargets?.some(target => target.toUpperCase() === 'ST')) return false;
+  const codes = errorCodes(error);
+  if (codes.includes('INVALID_OTP')) return true;
+  // Passkey cancellation happens in the browser, before assertion.check, and is not counted.
+  return action === 'assertion.check' && codes.some(code => /ASSERTION|FIDO|CREDENTIAL/.test(code));
+}
+
+function mfaAttemptMessage(failures) {
+  if (!failures) return '';
+  if (failures >= MFA_ATTEMPT_LIMIT) return 'Three verification attempts failed on this page. Your account may be temporarily locked.';
+  const remaining = MFA_ATTEMPT_LIMIT - failures;
+  return `Up to ${remaining} verification attempt${remaining === 1 ? '' : 's'} left. Attempts in another session may reduce this number.`;
+}
+
+function updateMfaNotice(message = mfaAttemptMessage(mfaFailures), locked = false) {
+  const box = document.querySelector('#mfa-attempts');
+  const recovery = document.querySelector('#unlock-help');
+  if (!box || !recovery) return;
+  box.textContent = message;
+  box.hidden = !message;
+  box.classList.toggle('is-locked', locked);
+  recovery.hidden = !locked;
+}
+
+function showLockout() {
+  showStep('');
+  clearError();
+  updateMfaNotice('Your account is temporarily locked after too many failed verification attempts. You can try signing in again in about 30 seconds.', true);
+  document.querySelector('#flow-status').textContent = 'Verification is unavailable right now.';
+  document.querySelector('#restart').hidden = false;
 }
 
 function setPasswordVisible(visible) {
@@ -182,6 +230,10 @@ function renderFlow(flow) {
   const deviceCount = populateDevices(flow);
   const canSwitch = deviceCount > 1 && flow._links?.['device.select']?.href === currentFlowUrl;
   document.querySelector('#change-device').hidden = !canSwitch || flow.status === 'DEVICE_SELECTION_REQUIRED';
+  if (isAccountLocked(flow)) {
+    showLockout();
+    return;
+  }
   switch (flow.status) {
     case 'USERNAME_PASSWORD_REQUIRED':
     case 'PASSWORD_REQUIRED':
@@ -224,6 +276,8 @@ function renderFlow(flow) {
       pollTimer = setTimeout(refreshFlow, 3000);
       break;
     case 'COMPLETED':
+      mfaFailures = 0;
+      updateMfaNotice();
       status.textContent = 'Completing sign-in…';
       if (inlineFlowId) completeInlineFlow(flow).catch(error => {
         showError(error.message);
@@ -236,6 +290,9 @@ function renderFlow(flow) {
     case 'PUSH_CONFIRMATION_TIMED_OUT':
       showStep('');
       status.textContent = 'Sign-in could not be completed.';
+      if (flow.error?.code === 'NO_USABLE_DEVICES') {
+        updateMfaNotice('No verification method is currently available. Your method may be temporarily locked.', true);
+      }
       restart.hidden = false;
       break;
     default:
@@ -271,6 +328,8 @@ async function requestFlow(url, options = {}) {
     error.pingTargets = Array.isArray(failure?.details)
       ? failure.details.map(detail => detail?.target).filter(target => typeof target === 'string' && /^[a-zA-Z][a-zA-Z0-9_.-]{0,79}$/.test(target)) : [];
     error.pingId = typeof failure?.id === 'string' ? failure.id : '';
+    error.pingFlowCode = typeof failure?.error?.code === 'string' ? failure.error.code : '';
+    error.attemptsRemaining = Number.isInteger(failure?.attemptsRemaining) ? failure.attemptsRemaining : null;
     throw error;
   }
   return response.json();
@@ -295,8 +354,11 @@ async function refreshFlow() {
   try {
     renderFlow(await requestFlow(currentFlowUrl));
   } catch (error) {
-    showError(error.message);
-    document.querySelector('#restart').hidden = false;
+    if (isAccountLocked(error)) showLockout();
+    else {
+      showError(error.message);
+      document.querySelector('#restart').hidden = false;
+    }
   }
 }
 
@@ -314,8 +376,21 @@ async function submitFlow(action, mediaType, payload) {
     renderFlow(next);
   } catch (error) {
     // A failed credential check can leave the same flow available for retry.
-    try { renderFlow(await requestFlow(currentFlowUrl)); } catch { /* Retry uses current state. */ }
-    if (action === 'device.select' && error.status) {
+    let flowLocked = false;
+    try {
+      const latest = await requestFlow(currentFlowUrl);
+      renderFlow(latest);
+      flowLocked = isAccountLocked(latest);
+    } catch { /* Retry uses current state. */ }
+    if (flowLocked || isAccountLocked(error)) {
+      showLockout();
+    } else if (isRejectedMfaCheck(action, error)) {
+      mfaFailures = Math.min(MFA_ATTEMPT_LIMIT, mfaFailures + 1);
+      updateMfaNotice(Number.isInteger(error.attemptsRemaining) && error.attemptsRemaining >= 0 && error.attemptsRemaining <= MFA_ATTEMPT_LIMIT
+        ? `${error.attemptsRemaining} verification attempt${error.attemptsRemaining === 1 ? '' : 's'} left.`
+        : mfaAttemptMessage(mfaFailures));
+      showError('That verification did not work. Please try again.');
+    } else if (action === 'device.select' && error.status) {
       const codes = [error.pingCode, ...(error.pingDetailCodes || [])]
         .filter(code => /^[A-Z][A-Z0-9_]{0,63}$/.test(code));
       const targets = [...new Set(error.pingTargets || [])];
@@ -365,10 +440,13 @@ async function boot() {
 
 if (typeof document !== 'undefined') {
   boot().catch(error => {
-    showError(error.message);
-    document.querySelector('#flow-status').textContent = 'Sign-in could not start.';
-    document.querySelector('#restart').hidden = false;
+    if (isAccountLocked(error)) showLockout();
+    else {
+      showError(error.message);
+      document.querySelector('#flow-status').textContent = 'Sign-in could not start.';
+      document.querySelector('#restart').hidden = false;
+    }
   });
 }
 
-if (typeof module !== 'undefined') module.exports = { flowEndpoint, signonRequest, validatedFlowEndpoint, actionEndpoint, resumeEndpoint, requestCredentialOptions };
+if (typeof module !== 'undefined') module.exports = { flowEndpoint, signonRequest, validatedFlowEndpoint, actionEndpoint, resumeEndpoint, requestCredentialOptions, isAccountLocked, isRejectedMfaCheck, mfaAttemptMessage };

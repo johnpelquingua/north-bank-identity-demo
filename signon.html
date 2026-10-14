@@ -7,8 +7,8 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://auth.pingone.sg; img-src 'self' data:; base-uri 'none'; form-action 'none'">
   <title>Sign in · North Bank</title>
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="signon.css?v=20261013-eye">
-  <script src="signon.js?v=20261013-eye" defer></script>
+  <link rel="stylesheet" href="signon.css?v=20261014-mfa-lockout">
+  <script src="signon.js?v=20261014-mfa-lockout" defer></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to sign in</a>
@@ -25,7 +25,7 @@
         <h1>Welcome back.</h1>
         <p class="muted">Sign in to your banking dashboard.</p>
         <p id="flow-status" class="small muted" role="status">Preparing secure sign-in…</p>
-        <p id="flow-error" class="error" role="alert" hidden></p>
+        <p id="flow-error" class="error" role="alert" hidden></p><p id="mfa-attempts" class="mfa-attempt-notice" role="status" hidden></p><div id="unlock-help" class="unlock-help" hidden><strong>Locked out?</strong> PingOne is set to unlock the account after 30 seconds. If you still cannot sign in, contact your North Bank demo administrator to unlock the account or verification method in PingOne.</div>
         <form id="credentials" autocomplete="on">
           <label for="username">Username</label>
           <input id="username" name="username" autocomplete="username" required>
