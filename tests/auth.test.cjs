@@ -89,6 +89,20 @@ test('profile formats and escapes the OIDC address claim', () => {
   evaluate('session=null');
 });
 
+test('organization details come from the current user and escape custom claims', () => {
+  evaluate("session={mode:'pingone',user:{sub:'ad-user-1',title:'Senior Analyst',department:'Fraud <Ops>',company:'Netpoleons & Co'}}");
+  const first = evaluate('profile()');
+  assert.match(first, /<h3>Organization<\/h3>/);
+  assert.match(first, /Job Title<\/label><input[^>]+value="Senior Analyst" readonly/);
+  assert.match(first, /Department<\/label><input[^>]+value="Fraud &lt;Ops&gt;" readonly/);
+  assert.match(first, /Company<\/label><input[^>]+value="Netpoleons &amp; Co" readonly/);
+  evaluate("session={mode:'pingone',user:{sub:'ad-user-2'}}");
+  const second = evaluate('profile()');
+  assert.doesNotMatch(second, /Senior Analyst|Netpoleons &amp; Co/);
+  assert.match(second, /Job Title<\/label><input[^>]+value="" readonly placeholder="Not provided"/);
+  evaluate('session=null');
+});
+
 test('MFA device requests stay in the configured PingOne environment', async () => {
   const userId = 'fa15fe35-b52a-4240-a22f-59274a2fa72a';
   evaluate("config={issuer:'https://auth.pingone.sg/22f37616-5cf6-47ee-8111-f0c870cbfa8f/as',clientId:'sample-client'}");
