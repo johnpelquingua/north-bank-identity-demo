@@ -65,6 +65,7 @@
 .profile-detail-section h3{margin:0 0 18px;color:var(--green);font-size:17px}
 .profile-attribute-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}
 @media(max-width:760px){.profile-attribute-grid{grid-template-columns:1fr}}
+.tx-time{display:block;margin-top:4px;white-space:nowrap;font-size:11px;color:#6b7975}
 .profile-badges{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
 .recognize-enrolled-badge{display:inline-flex;align-items:center;gap:5px;width:max-content;max-width:100%;margin-top:5px;padding:6px 9px;border:1px solid #bfdcc7;border-radius:999px;background:#e9f6ed;color:#216344;font-size:11px;font-weight:700;line-height:1.2;white-space:nowrap}
 .profile-badges .recognize-enrolled-badge{margin-top:0}

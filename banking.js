@@ -49,10 +49,13 @@ function loadRecognizeSdk(){
   return recognizeSdkPromise;
 }
 function bankTransaction(t){
+  const occurredAt=new Date(t.created_at);
   return {
     name:String(t.counterparty_name||'Customer'),
     detail:`Transfer · ${t.direction==='INCOMING'?'Incoming':'Outgoing'} · ${String(t.counterparty_account_number||'')}`,
-    date:new Date(t.created_at).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric',timeZone:'Asia/Manila'}),
+    date:occurredAt.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric',timeZone:'Asia/Manila'}),
+    time:occurredAt.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true,timeZone:'Asia/Manila'})+' PHT',
+    timestamp:t.created_at,
     amount:(t.direction==='INCOMING'?1:-1)*Number(t.amount_cents)/100,
     icon:t.direction==='INCOMING'?'↙':'↗'
   };

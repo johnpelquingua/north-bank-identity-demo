@@ -31,11 +31,17 @@ test('statements include only the signed-in account history within Philippine da
   assert.equal(rows[0].name,'Second customer');
   assert.equal(rows[0].amount,-20000);
   assert.equal(rows[0].date,'13 Oct 2026');
+  assert.equal(rows[0].time,'08:30:00 AM PHT');
   const html=vm.runInContext('statements()',context);
   assert.match(html,/1 transaction in this range/);
   assert.match(html,/Second customer/);
+  assert.match(html,/08:30:00 AM PHT/);
   assert.doesNotMatch(html,/First customer/);
   assert.match(html,/latest 2 available transfers/);
+  vm.runInContext('transactions=bankHistory.map(bankTransaction)',context);
+  assert.match(vm.runInContext('overview()',context),/08:30:00 AM PHT/);
+  assert.match(vm.runInContext('activity()',context),/08:30:00 AM PHT/);
+  assert.match(vm.runInContext('csvRows(statementRows())',context),/13 Oct 2026, 08:30:00 AM PHT/);
 });
 
 test('banking navigation exposes working account, transfer, statement, and security destinations',()=>{
