@@ -98,6 +98,15 @@ The North Bank profile displays PingOne UserInfo's OIDC `address` claim, using i
 3. In **North Bank Web CIAM → Resources**, allow the OIDC **address** scope. If the app overrides its OIDC attribute mapping, make sure it returns the standard `address` claim.
 4. Check the user's PingOne directory address, then sign out and sign in again. If the field is still empty, inspect the UserInfo `address` claim. The page does not read AD directly.
 
+### Show organization details in each user's profile
+
+**My profile → Organization** always shows **Job Title**, **Department**, and **Company**. For a PingOne sign-in, these are read-only values from that user's `/userinfo` response: `title`, `department`, and `company`. The page shows **Not provided** for a missing claim; it does not reuse another user's details or invent a company. The demo account can edit these fields locally.
+
+1. Set the user's **Title**, **Department**, and **Company** attributes in AD. Each AD user needs their own values.
+2. In the LDAP gateway user type's **Map Attributes** section, map AD `title` to PingOne `title`. Map AD `department` and `company` to corresponding PingOne user attributes. PingOne has a built-in `title` attribute; create custom string user attributes for `department` and `company` if your environment does not already have them. For previously migrated users, enable **Update PingOne user attributes as users sign on** and sign in again to refresh their PingOne record.
+3. In **Applications → Applications → North Bank Web CIAM → Attribute Mappings**, expose OIDC claims named exactly `title`, `department`, and `company` from those PingOne user attributes. Configure the claims for **UserInfo** delivery with the application's allowed `profile` scope. The app already requests `profile` at sign-in; these three organization claims are custom mappings, not standard OIDC profile claims. See [PingOne application attribute mapping](https://docs.pingidentity.com/pingone/applications/p1_customizing_oidc_attributes_for_application.html).
+4. Sign out and sign in as each user. Check **My profile → Organization**. If a field says **Not provided**, check the user's PingOne directory value and the corresponding claim in `/userinfo`; the website cannot read AD directly.
+
 ## Authentication design
 
 The browser uses OIDC Authorization Code with S256 PKCE and PingOne's non-redirect `pi.flow` response mode. It exchanges the resulting authorization code, verifies the RS256 ID token against PingOne JWKS, checks issuer, audience, authorized party, nonce, issue and expiry times, and matches the UserInfo `sub` to the ID token. Redirect callbacks, if used, also validate `state`. Tokens remain in memory and disappear on reload. The short-lived PKCE transaction is in `sessionStorage` and is removed when the code is redeemed. Public issuer/client ID settings are stored in `localStorage` for convenience.
