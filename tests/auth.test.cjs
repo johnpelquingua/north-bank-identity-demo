@@ -103,6 +103,20 @@ test('organization details come from the current user and escape custom claims',
   evaluate('session=null');
 });
 
+test('employment details use only the signed-in user and preserve text identifiers', () => {
+  evaluate("session={mode:'pingone',user:{sub:'ad-user-1',employeeID:'00142',employeeNumber:'N-0097',employeeType:'Full-time <Staff>'}}");
+  const first = evaluate('profile()');
+  assert.match(first, /<h3>Employment<\/h3>/);
+  assert.match(first, /Employee ID<\/label><input[^>]+value="00142" readonly/);
+  assert.match(first, /Employee Number<\/label><input[^>]+value="N-0097" readonly/);
+  assert.match(first, /Employee Type<\/label><input[^>]+value="Full-time &lt;Staff&gt;" readonly/);
+  evaluate("session={mode:'pingone',user:{sub:'ad-user-2'}}");
+  const second = evaluate('profile()');
+  assert.doesNotMatch(second, /00142|N-0097|Full-time &lt;Staff&gt;/);
+  assert.match(second, /Employee ID<\/label><input[^>]+value="" readonly placeholder="Not provided"/);
+  evaluate('session=null');
+});
+
 test('MFA device requests stay in the configured PingOne environment', async () => {
   const userId = 'fa15fe35-b52a-4240-a22f-59274a2fa72a';
   evaluate("config={issuer:'https://auth.pingone.sg/22f37616-5cf6-47ee-8111-f0c870cbfa8f/as',clientId:'sample-client'}");
