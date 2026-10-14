@@ -17,7 +17,7 @@ async function bankRequest(method,body){
 
 let recognizeSdkPromise;
 function recognizeEnrollmentKey(){return 'north.recognize.enrolled.'+encodeURIComponent(session?.user?.sub||'')}
-function hasRecognizeEnrollment(){try{return localStorage.getItem(recognizeEnrollmentKey())==='1'}catch{return false}}
+function hasRecognizeEnrollment(){if(session?.user?.recognizeEnrolled==='true')return true;try{return localStorage.getItem(recognizeEnrollmentKey())==='1'}catch{return false}}
 function rememberRecognizeEnrollment(){try{localStorage.setItem(recognizeEnrollmentKey(),'1')}catch{}}
 function recognizeFailureMessage(code,mode){
   const messages={
@@ -194,7 +194,7 @@ transfer=function(){
         component.setAttribute('service-url',service);
         component.setAttribute('ws-url',service.replace(/^https:/,'wss:'));
         component.setAttribute('transaction-data',mode==='enroll'
-          ?JSON.stringify({type:'face-enrollment',username:challenge.username})
+          ?(challenge.enrollmentTransactionData||JSON.stringify({type:'face-enrollment',username:challenge.username}))
           :challenge.transactionData);
         component.setAttribute('lang','en');
         component.setAttribute('theme','light');
@@ -215,7 +215,16 @@ transfer=function(){
           camera.replaceChildren();
           if(mode==='enroll'){
             rememberRecognizeEnrollment();enrollHelp.hidden=true;
-            message.textContent='Face setup complete. Now confirm this transfer with a new face check.';
+            message.textContent='Face setup complete. Updating your profile…';
+            if(typeof proof==='string'){
+              try{
+                const result=await bankRequest('POST',{
+                  action:'recognize-enrollment-complete',recipientAccountNumber:'',amountCents:0,requestId:'',
+                  transferContext:payload,enrollmentJwt:proof,
+                });
+                if(result.recognizeEnrolled===true)session.user.recognizeEnrolled='true';
+              }catch{message.textContent='Face setup complete. Your directory badge is pending; you can still verify this transfer.'}
+            }
             busy=false;
             await start('auth');
             return;
@@ -223,7 +232,7 @@ transfer=function(){
           if(typeof proof!=='string'){failure.textContent='Face verification did not return a confirmation. Please try again.';failure.hidden=false;options.hidden=false;busy=false;panel.classList.remove('recognize-busy');return}
           rememberRecognizeEnrollment();enrollHelp.hidden=true;
           message.textContent='Confirming transfer…';
-          try{const data=await bankRequest('POST',{...payload,recognizeJwt:proof});if(!dialog.open)return;applyBankData(data);dialog.close();render();toast('Transfer completed.')}
+          try{const data=await bankRequest('POST',{...payload,recognizeJwt:proof});if(!dialog.open)return;if(data.recognizeEnrollmentRecorded===true)session.user.recognizeEnrolled='true';applyBankData(data);dialog.close();render();toast(data.recognizeEnrollmentRecorded===false&&session.user.recognizeEnrolled!=='true'?'Transfer completed. Your face enrollment badge is pending.':'Transfer completed.')}
           catch(error){failure.textContent=error.message;failure.hidden=false;options.hidden=false;busy=false;panel.classList.remove('recognize-busy')}
         },{once:true});
         camera.append(component);panel.classList.remove('recognize-busy');message.textContent=mode==='enroll'?'Set up face verification with your camera.':'Follow the camera instructions to confirm your transfer.';

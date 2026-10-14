@@ -83,3 +83,59 @@ test('refreshing a face challenge never sends the transfer',async()=>{
   assert.equal(f.calls.some(call=>call.url.endsWith('/make_demo_transfer')),false);
 });
 
+test('an unverified enrollment result cannot update the PingOne directory',async()=>{
+  const f=await setup();f.calls.length=0;
+  const values={
+    SUPABASE_URL:'https://test.supabase.co',SUPABASE_SECRET_KEYS:JSON.stringify({default:'sb_secret_test'}),
+    RECOGNIZE_ENABLED:'true',RECOGNIZE_JWKS_URL:'https://example.test/customers/netpoleons_asia/.well-known/jwks.json',
+    PINGONE_WORKER_CLIENT_ID:'worker-id',PINGONE_WORKER_CLIENT_SECRET:'worker-secret',
+  };
+  const response=await f.handleBankRequest(new Request('https://bank.test',{method:'POST',headers:{
+    Authorization:'Bearer '+await f.token('alice'),Origin:'https://johnpelquingua.github.io',
+  },body:JSON.stringify({action:'recognize-enrollment-complete',enrollmentJwt:'unsigned',
+    recipientAccountNumber:'',amountCents:0,requestId:'',transferContext:{
+      recipientAccountNumber:'7000000002',amountCents:2000001,
+      requestId:'3085575d-44c0-4e3a-84eb-97f6de1a0d86'}})}),
+  {...f.dependencies,getEnv:name=>values[name]});
+  assert.equal(response.status,403);
+  assert.equal(f.calls.some(call=>call.url.includes('pingone.sg')),false);
+  assert.equal(f.calls.some(call=>call.url.endsWith('/make_demo_transfer')),false);
+});
+
+test('a signed enrollment result updates the matching user without sending a transfer',async()=>{
+  const f=await setup();f.calls.length=0;
+  const {recognizeEnrollmentData}=await import('../supabase/functions/bank-demo/recognize.mjs');
+  const subject='bdc48b62-7baf-418d-bd08-c4baf552eb44';
+  const requestId='3085575d-44c0-4e3a-84eb-97f6de1a0d86';
+  const pair=await webcrypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
+  const jwk=await webcrypto.subtle.exportKey('jwk',pair.publicKey);jwk.kid='recognize-key';jwk.use='sig';
+  const td=recognizeEnrollmentData({issuer:ISSUER,subject,requestId});
+  const header=B64({alg:'ES256',kid:jwk.kid});
+  const claims=B64({iat:Math.floor(Date.now()/1000),td});
+  const signed=header+'.'+claims;
+  const signature=await webcrypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},pair.privateKey,new TextEncoder().encode(signed));
+  const proof=signed+'.'+Buffer.from(signature).toString('base64url');
+  const values={
+    SUPABASE_URL:'https://test.supabase.co',SUPABASE_SECRET_KEYS:JSON.stringify({default:'sb_secret_test'}),
+    RECOGNIZE_ENABLED:'true',RECOGNIZE_JWKS_URL:'https://example.test/customers/netpoleons_asia/.well-known/jwks.json',
+    PINGONE_WORKER_CLIENT_ID:'worker-id',PINGONE_WORKER_CLIENT_SECRET:'worker-secret',
+  };
+  const directoryCalls=[];
+  const fetcher=async(url,options)=>{
+    if(url===values.RECOGNIZE_JWKS_URL)return Response.json({keys:[jwk]});
+    if(url.endsWith('/as/token'))return Response.json({access_token:'worker-token'});
+    if(url.includes('/users/')){directoryCalls.push({url,options});return Response.json({id:subject})}
+    return f.dependencies.fetcher(url,options);
+  };
+  const response=await f.handleBankRequest(new Request('https://bank.test',{method:'POST',headers:{
+    Authorization:'Bearer '+await f.token(subject),Origin:'https://johnpelquingua.github.io',
+  },body:JSON.stringify({action:'recognize-enrollment-complete',recipientAccountNumber:'',amountCents:0,requestId:'',
+    transferContext:{recipientAccountNumber:'7000000002',amountCents:2000001,requestId},enrollmentJwt:proof})}),
+  {...f.dependencies,fetcher,getEnv:name=>values[name],cryptoApi:webcrypto});
+  assert.equal(response.status,200);
+  assert.equal((await response.json()).recognizeEnrolled,true);
+  assert.equal(directoryCalls.length,1);
+  assert.match(directoryCalls[0].url,new RegExp(subject+'$'));
+  assert.deepEqual(JSON.parse(directoryCalls[0].options.body),{recognizeEnrolled:'true'});
+  assert.equal(f.calls.some(call=>call.url.endsWith('/make_demo_transfer')),false);
+});

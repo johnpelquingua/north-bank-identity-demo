@@ -79,3 +79,23 @@ test('public Recognize key endpoint never returns the private key', async () => 
   }
 });
 
+test('verified enrollment status updates only the matched PingOne user through a Worker app', async () => {
+  const { markRecognizeEnrolled } = await import('../supabase/functions/bank-demo/recognize-status.mjs');
+  const subject = 'bdc48b62-7baf-418d-bd08-c4baf552eb44';
+  const calls = [];
+  const getEnv = name => ({ PINGONE_WORKER_CLIENT_ID: 'worker-id', PINGONE_WORKER_CLIENT_SECRET: 'worker-secret' })[name];
+  const fetcher = async (url, options) => {
+    calls.push({ url, options });
+    return calls.length === 1 ? Response.json({ access_token: 'worker-access-token' }) : Response.json({ id: subject });
+  };
+  await markRecognizeEnrolled(subject, getEnv, fetcher);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].url, 'https://auth.pingone.sg/22f37616-5cf6-47ee-8111-f0c870cbfa8f/as/token');
+  assert.equal(calls[0].options.headers.Authorization, 'Basic ' + Buffer.from('worker-id:worker-secret').toString('base64'));
+  assert.equal(calls[1].url, `https://api.pingone.sg/v1/environments/22f37616-5cf6-47ee-8111-f0c870cbfa8f/users/${subject}`);
+  assert.equal(calls[1].options.method, 'PATCH');
+  assert.deepEqual(JSON.parse(calls[1].options.body), { recognizeEnrolled: 'true' });
+  await assert.rejects(markRecognizeEnrolled('different-user', getEnv, fetcher));
+  await assert.rejects(markRecognizeEnrolled(subject, () => undefined, fetcher));
+  assert.equal(calls.length, 2);
+});

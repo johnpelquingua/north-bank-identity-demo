@@ -165,6 +165,18 @@ Opening the root of either service in a browser returns an error; the SDK calls 
 
 The function verifies Recognize's ES256 or RS256 signature against the tenant's public keys and binds the signed transaction data to the transfer. It does not upload a selfie or store a face image in Supabase. This remains a fictional banking demo, not a production payment system.
 
+### Show P1R enrollment in PingOne Directory and North Bank
+
+The **P1R enrolled** badge is a directory status indicator. A transfer still needs its own fresh, signed Recognize check. The badge is set automatically only after the server verifies a signed face-enrollment result; a successful face-verified transfer can also backfill the flag for someone who enrolled before this feature was deployed. An unsuccessful transfer can still backfill it if its face proof was valid. Clearing a face in Recognize outside North Bank does **not** automatically clear this directory flag; an administrator must clear it, or a separate de-enrollment integration must be built.
+
+1. In **PingOne Admin → Directory → User Attributes**, add a custom **String** attribute named exactly `recognizeEnrolled`. Make it single-valued and leave it empty for users who have not enrolled. In **Directory → Users → [user]**, verify that it appears in **Custom Attributes**. The server writes the string `true` after proof verification.
+2. In **Applications → Applications**, add a **Worker** application in the same PingOne environment as North Bank. Enable it and grant only the environment role needed to update users, such as **Identity Data Admin** (or a custom role with `dir:update:user`). Copy its client ID and client secret into **Supabase → Edge Functions → Secrets** as `PINGONE_WORKER_CLIENT_ID` and `PINGONE_WORKER_CLIENT_SECRET`. Keep the secret out of GitHub and the browser. The Worker app uses client credentials to update the signed-in user's PingOne user record.
+3. In **Applications → Applications → North Bank Web CIAM → Attribute Mappings**, expose a UserInfo claim named exactly `recognizeEnrolled`, sourced from the same directory attribute. Give it the existing `profile` scope. The badge appears on fresh sign-ins when `/userinfo` returns `"recognizeEnrolled":"true"`. The current session also updates immediately when the server confirms the directory write.
+4. Deploy the current `supabase/functions/bank-demo/index.mjs`, `recognize.mjs`, and the new `recognize-status.mjs` **together** to the existing `bank-demo` Edge Function. Replace the existing files; do not create another function or duplicate filenames. Keep **Verify JWT with legacy secret** off. No new SQL migration is needed for this badge.
+5. Sign in as a user without the flag and enroll a face. Check that **Directory → Users → [that user] → Custom Attributes → recognizeEnrolled** reads `true`, then look for **P1R enrolled** beside the user's name and on **My profile**. Sign out and back in to verify the badge survives a fresh session. For a user who enrolled earlier, complete one face-verified transfer to backfill the flag. A user without the flag should not see the badge.
+
+If face enrollment succeeds but the badge stays pending, check the `bank-demo` Edge Function logs for **Recognize directory status update failed**. Verify the Worker app role, its secrets, the custom attribute name, and that all three function files were deployed. Do not share Worker credentials or full tokens when troubleshooting. If `/userinfo` lacks the claim after the directory value appears, recheck the OIDC attribute mapping and sign in again.
+
 ## Project files
 
 | Path | Purpose |

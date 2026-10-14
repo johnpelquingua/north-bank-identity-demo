@@ -9,6 +9,10 @@ export function recognizeTransactionData({ issuer, subject, recipientAccountNumb
   return JSON.stringify({ version: 1, issuer, subject, recipientAccountNumber, amountCents, requestId });
 }
 
+export function recognizeEnrollmentData({ issuer, subject, requestId }) {
+  return JSON.stringify({ version: 1, type: 'face-enrollment', issuer, subject, requestId });
+}
+
 function privateJwk(getEnv) {
   let jwk;
   try { jwk = JSON.parse(getEnv('RECOGNIZE_AUTH_PRIVATE_JWK') || ''); } catch { throw Error('Recognize is not configured.'); }
@@ -66,4 +70,3 @@ export async function verifyRecognizeProof(token, expectedData, getEnv, fetcher 
   if (!valid) throw Error('Face verification could not be confirmed.');
   return claims;
 }
-

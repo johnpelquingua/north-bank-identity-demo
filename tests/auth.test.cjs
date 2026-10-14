@@ -117,6 +117,16 @@ test('employment details use only the signed-in user and preserve text identifie
   evaluate('session=null');
 });
 
+test('Recognize badge is shown only for an explicit PingOne enrollment claim', () => {
+  evaluate("session={mode:'pingone',user:{sub:'ad-user-1',recognizeEnrolled:'true'}}");
+  assert.match(evaluate('profile()'), /✓ P1R enrolled/);
+  evaluate("session={mode:'pingone',user:{sub:'ad-user-2',recognizeEnrolled:'false'}}");
+  assert.doesNotMatch(evaluate('profile()'), /P1R enrolled/);
+  evaluate("session={mode:'demo',user:{sub:'demo-user',recognizeEnrolled:'true'}}");
+  assert.doesNotMatch(evaluate('profile()'), /P1R enrolled/);
+  evaluate('session=null');
+});
+
 test('MFA device requests stay in the configured PingOne environment', async () => {
   const userId = 'fa15fe35-b52a-4240-a22f-59274a2fa72a';
   evaluate("config={issuer:'https://auth.pingone.sg/22f37616-5cf6-47ee-8111-f0c870cbfa8f/as',clientId:'sample-client'}");

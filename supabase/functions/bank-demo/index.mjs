@@ -1,5 +1,6 @@
 // North Bank fictional transfer API. No real funds or payment rails are involved.
-import { authorizeRecognizeUser, recognizeTransactionData, verifyRecognizeProof } from './recognize.mjs';
+import { authorizeRecognizeUser, recognizeEnrollmentData, recognizeTransactionData, verifyRecognizeProof } from './recognize.mjs';
+import { markRecognizeEnrolled } from './recognize-status.mjs';
 const ISSUER = 'https://auth.pingone.sg/22f37616-5cf6-47ee-8111-f0c870cbfa8f/as';
 const CLIENT_ID = 'b62c72a0-1d23-4351-8f67-77054a795169';
 const ALLOWED_ORIGINS = new Set(['https://johnpelquingua.github.io', 'http://localhost:8080']);
@@ -100,7 +101,7 @@ async function accountView(account, fetcher, getEnv) {
   return { account: { accountNumber: account.account_number, displayName: account.display_name, balanceCents: account.balance_cents }, history };
 }
 
-async function recognizeChallenge(claims, transactionData, getEnv, cryptoApi) {
+async function recognizeChallenge(claims, transactionData, enrollmentTransactionData, getEnv, cryptoApi) {
   const customer = getEnv('RECOGNIZE_CUSTOMER_NAME');
   const serviceUrl = getEnv('RECOGNIZE_AUTH_SERVICE_URL');
   if (getEnv('RECOGNIZE_ENABLED') !== 'true' || !customer ||
@@ -108,7 +109,7 @@ async function recognizeChallenge(claims, transactionData, getEnv, cryptoApi) {
     throw new BankError('Face verification is not ready. Your transfer was not sent.', 503);
   }
   try {
-    return { customer, serviceUrl, username: claims.sub, transactionData,
+    return { customer, serviceUrl, username: claims.sub, transactionData, enrollmentTransactionData,
       authorizationToken: await authorizeRecognizeUser(claims.sub, getEnv, cryptoApi) };
   } catch {
     throw new BankError('Face verification is not ready. Your transfer was not sent.', 503);
@@ -136,23 +137,43 @@ export async function handleBankRequest(request, dependencies = {}) {
     if (raw.length > 15000) throw new BankError('Transfer request is too large.', 400);
     let input;
     try { input = JSON.parse(raw); } catch { throw new BankError('Enter a valid transfer.', 400); }
-    if (!/^\d{10}$/.test(input?.recipientAccountNumber || '') ||
-        !Number.isSafeInteger(input?.amountCents) || input.amountCents < 1 || input.amountCents > 100000000 ||
-        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input?.requestId || '')) {
+    const transferInput = input?.action === 'recognize-enrollment-complete' ? input.transferContext : input;
+    if (!/^\d{10}$/.test(transferInput?.recipientAccountNumber || '') ||
+        !Number.isSafeInteger(transferInput?.amountCents) || transferInput.amountCents < 1 || transferInput.amountCents > 100000000 ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(transferInput?.requestId || '')) {
       throw new BankError('Enter a valid account number and amount.', 400);
     }
     const transactionData = recognizeTransactionData({
-      issuer: ISSUER, subject: claims.sub, recipientAccountNumber: input.recipientAccountNumber,
-      amountCents: input.amountCents, requestId: input.requestId,
+      issuer: ISSUER, subject: claims.sub, recipientAccountNumber: transferInput.recipientAccountNumber,
+      amountCents: transferInput.amountCents, requestId: transferInput.requestId,
+    });
+    const enrollmentTransactionData = recognizeEnrollmentData({
+      issuer: ISSUER, subject: claims.sub, requestId: transferInput.requestId,
     });
     if (input.action === 'recognize-challenge') {
-      return response({ recognize: await recognizeChallenge(claims, transactionData, getEnv, cryptoApi) }, 200, origin);
+      return response({ recognize: await recognizeChallenge(claims, transactionData, enrollmentTransactionData, getEnv, cryptoApi) }, 200, origin);
+    }
+    if (input.action === 'recognize-enrollment-complete') {
+      if (getEnv('RECOGNIZE_ENABLED') !== 'true') throw new BankError('Face verification is not ready.', 503);
+      try { await verifyRecognizeProof(input.enrollmentJwt, enrollmentTransactionData, getEnv, fetcher, cryptoApi); }
+      catch { throw new BankError('Face enrollment could not be confirmed.', 403); }
+      try { await markRecognizeEnrolled(claims.sub, getEnv, fetcher); }
+      catch (error) {
+        console.error('Recognize directory status update failed:', error.message);
+        throw new BankError('Face setup finished, but its directory badge could not be updated.', 503);
+      }
+      return response({ recognizeEnrolled: true }, 200, origin);
     }
     let faceVerified = false;
     if (input.recognizeJwt !== undefined) {
       if (getEnv('RECOGNIZE_ENABLED') !== 'true') throw new BankError('Face verification is not ready.', 503);
       try { await verifyRecognizeProof(input.recognizeJwt, transactionData, getEnv, fetcher, cryptoApi); faceVerified = true; }
       catch { throw new BankError('Face verification could not be confirmed. Please try again.', 403); }
+    }
+    let recognizeEnrollmentRecorded = false;
+    if (faceVerified) {
+      try { await markRecognizeEnrolled(claims.sub, getEnv, fetcher); recognizeEnrollmentRecorded = true; }
+      catch (error) { console.error('Recognize directory status update failed:', error.message); }
     }
     let receipt;
     try { receipt = await rpc('make_demo_transfer', {
@@ -162,10 +183,10 @@ export async function handleBankRequest(request, dependencies = {}) {
     catch (error) {
       if (error.code !== 'RECOGNIZE_REQUIRED') throw error;
       return response({ code: 'RECOGNIZE_REQUIRED', error: error.message,
-        recognize: await recognizeChallenge(claims, transactionData, getEnv, cryptoApi) }, 428, origin);
+        recognize: await recognizeChallenge(claims, transactionData, enrollmentTransactionData, getEnv, cryptoApi) }, 428, origin);
     }
     const refreshed = await rpc('ensure_demo_account', { p_issuer: ISSUER, p_subject: claims.sub, p_display_name: label }, fetcher, getEnv);
-    return response({ receipt, ...await accountView(refreshed[0], fetcher, getEnv) }, 200, origin);
+    return response({ receipt, recognizeEnrollmentRecorded, ...await accountView(refreshed[0], fetcher, getEnv) }, 200, origin);
   } catch (error) {
     if (error instanceof BankError) return response({ error: error.message, code: error.code }, error.status, origin);
     return response({ error: 'Transfer service is temporarily unavailable.' }, 503, origin);
@@ -173,4 +194,3 @@ export async function handleBankRequest(request, dependencies = {}) {
 }
 
 if (typeof Deno !== 'undefined') Deno.serve(request => handleBankRequest(request));
-
