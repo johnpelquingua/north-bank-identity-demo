@@ -61,3 +61,8 @@
 @media(max-width:520px){.bank-transfer-dialog{padding:23px 18px;border-radius:16px}.transfer-header h2,.transfer-header h3{font-size:21px}.recognize-choice{grid-template-columns:34px minmax(0,1fr) auto;padding:12px}.recognize-choice-icon{width:34px;height:34px}.recognize-choice strong{font-size:13px}}
 @media(prefers-reduced-motion:reduce){.btn,.action,.recognize-choice{transition:none}.recognize-busy .recognize-status:before{animation:none}}
 
+.profile-organization{margin-top:28px;padding-top:24px;border-top:1px solid var(--line)}
+.profile-organization h3{margin:0 0 18px;color:var(--green);font-size:17px}
+.organization-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}
+@media(max-width:760px){.organization-grid{grid-template-columns:1fr}}
+
