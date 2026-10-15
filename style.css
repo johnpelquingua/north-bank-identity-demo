@@ -81,3 +81,6 @@
 .recognize-enrolled-badge{display:inline-flex;align-items:center;gap:5px;width:max-content;max-width:100%;margin-top:5px;padding:6px 9px;border:1px solid #bfdcc7;border-radius:999px;background:#e9f6ed;color:#216344;font-size:11px;font-weight:700;line-height:1.2;white-space:nowrap}
 .profile-badges .recognize-enrolled-badge{margin-top:0}
 
+
+.tx-reference{margin-top:5px;color:var(--green);font-size:10px;font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+
