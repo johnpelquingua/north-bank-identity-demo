@@ -65,11 +65,11 @@ test('accepts a valid ID token and rejects altered or invalid claims', async () 
   await assert.rejects(validate(tampered.join('.')), /signature/);
 });
 
-test('CSV export protects text fields and keeps negative amounts numeric', () => {
+test('CSV export protects text fields and places outgoing amounts in debit', () => {
   const result = context.csvRows([{ name: '=SUM(1,1)', detail: '@attacker', date: '12 Oct 2026', amount: -25.5 }]);
   assert.match(result, /"'=SUM\(1,1\)"/);
   assert.match(result, /"'@attacker"/);
-  assert.match(result, /,-25\.50$/);
+  assert.match(result, /,25\.50,,$/);
 });
 
 test('profile shows the phone claim returned for a signed-in user', () => {
@@ -286,3 +286,4 @@ test('opening the main page starts a non-redirect PingOne flow with PKCE', async
   assert.equal(receivedFlow, flow);
   assert.equal(JSON.parse(context.pending.value).mode, 'flow');
 });
+
