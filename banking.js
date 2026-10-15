@@ -168,7 +168,7 @@ transfer=function(){
       </div>
       <div class="recognize-mfa" id="recognize-mfa" hidden><div class="recognize-mfa-notice"><strong>Use another way to verify</strong><p>Face verification could not be completed. Choose an enrolled PingOne method to approve this pending transfer.</p></div><div id="recognize-mfa-methods"></div><div id="recognize-mfa-action"></div></div>
       <p class="recognize-status" id="recognize-message" role="status"></p><div id="recognize-camera"></div><p class="error transfer-error" id="recognize-error" role="alert" hidden></p>
-      <div class="transfer-footer recognize-footer"><button type="button" class="btn secondary" id="recognize-cancel">Cancel transfer</button></div>`;
+      <div class="transfer-footer recognize-footer"><button type="button" class="btn" id="recognize-mfa-switch">Use PingOne MFA instead</button><button type="button" class="btn secondary" id="recognize-cancel">Cancel transfer</button></div>`;
     dialog.append(panel);
     panel.querySelector('#recognize-amount').textContent=money(payload.amountCents/100);
     panel.querySelector('#recognize-recipient').textContent=payload.recipientAccountNumber;
@@ -180,8 +180,10 @@ transfer=function(){
     panel.querySelector('#recognize-cancel').onclick=()=>dialog.close();
     const message=panel.querySelector('#recognize-message'),failure=panel.querySelector('#recognize-error');
     const camera=panel.querySelector('#recognize-camera'),options=panel.querySelector('#recognize-options');
-    let busy=false,mfaState='',mfaFlow=null;
+    let busy=false,usingMfa=false,mfaState='',mfaFlow=null;
     const mfaPanel=panel.querySelector('#recognize-mfa'),mfaMethods=panel.querySelector('#recognize-mfa-methods'),mfaAction=panel.querySelector('#recognize-mfa-action');
+    const mfaSwitch=panel.querySelector('#recognize-mfa-switch');
+    mfaSwitch.onclick=()=>openMfa();
     const mfaLabels={TOTP:'Authenticator app',EMAIL:'Email code',FIDO2:'Passkey or security key',MOBILE:'PingID mobile app'};
     async function completeMfa(){
       message.textContent='Confirming PingOne verification and sending transfer…';
@@ -236,27 +238,34 @@ transfer=function(){
       }catch(error){showMfaError(error)}
     }
     async function openMfa(preserveFaceError=false){
-      if(busy)return;
-      busy=true;failure.hidden=!preserveFaceError;options.hidden=true;camera.replaceChildren();
+      if(!dialog.open||(usingMfa&&busy))return;
+      usingMfa=true;busy=true;mfaSwitch.hidden=true;failure.hidden=!preserveFaceError;options.hidden=true;camera.replaceChildren();
+      panel.querySelector('#recognize-title').textContent='Verify this transfer';
+      panel.querySelector('.recognize-prompt').textContent='PingOne MFA';
+      mfaPanel.querySelector('p').textContent=enrolled
+        ?'Choose an enrolled PingOne method to approve this pending transfer.'
+        :'Face registration can be completed later. Choose an enrolled PingOne method to approve this pending transfer.';
       mfaPanel.hidden=false;mfaMethods.textContent='Loading your enrolled PingOne methods…';mfaAction.replaceChildren();
       message.textContent='Loading your PingOne methods…';
+      mfaPanel.scrollIntoView({block:'nearest'});
       try{const result=await bankRequest('POST',{...payload,action:'mfa-start'});mfaState=result.state;renderMfa(result)}
       catch(error){showMfaError(error)}finally{busy=false}
     }
     function faceFailed(error){
+      if(usingMfa||!dialog.open)return;
       busy=false;panel.classList.remove('recognize-busy');camera.replaceChildren();
       failure.textContent=error.message;failure.hidden=false;
       openMfa(true);
     }
     async function start(mode){
-      if(busy||!dialog.open)return;
+      if(busy||usingMfa||!dialog.open)return;
       busy=true;failure.hidden=true;options.hidden=true;message.textContent='Opening camera…';panel.classList.add('recognize-busy');
       try{
         const refreshed=await bankRequest('POST',{...payload,action:'recognize-challenge'});
         const challenge=refreshed.recognize;
         if(!challenge?.authorizationToken)throw Error('Face verification could not start.');
         await loadRecognizeSdk();
-        if(!dialog.open)return;
+        if(!dialog.open||usingMfa)return;
         camera.replaceChildren();
         const component=document.createElement(mode==='enroll'?'kl-enroll':'kl-auth');
         const service=challenge.serviceUrl.replace(/\/$/,'');
@@ -274,13 +283,13 @@ transfer=function(){
         component.setAttribute('enable-camera-instructions','');
         let settled=false;
         component.addEventListener('error',event=>{
-          if(!dialog.open||settled)return;
+          if(!dialog.open||usingMfa||settled)return;
           settled=true;
           const code=typeof event.message==='string'&&/^[A-Z][A-Z0-9_]{2,80}$/.test(event.message)?event.message:'UNKNOWN';
           faceFailed(Error(recognizeFailureMessage(code,mode)));
         },{once:true});
         component.addEventListener('success',async event=>{
-          if(!dialog.open||settled)return;
+          if(!dialog.open||usingMfa||settled)return;
           settled=true;
           const proof=event.detail?.jwt;
           camera.replaceChildren();
