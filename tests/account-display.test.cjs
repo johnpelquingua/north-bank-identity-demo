@@ -25,7 +25,7 @@ test('signed-in account display masks the assigned account number and omits inve
 });
 
 test('statements include only the signed-in account history within Philippine dates',()=>{
-  vm.runInContext("bankHistory=[{created_at:'2026-10-13T00:30:00Z',direction:'OUTGOING',counterparty_name:'Second customer',counterparty_account_number:'7000005678',amount_cents:2000000,reference_id:'NB-20261013-00018427'},{created_at:'2026-10-12T15:30:00Z',direction:'INCOMING',counterparty_name:'First customer',counterparty_account_number:'7000009999',amount_cents:1900000,reference_id:'NB-20261012-00018426'}];statementFrom='2026-10-13';statementTo='2026-10-13';",context);
+  vm.runInContext("bankHistory=[{created_at:'2026-10-13T00:30:00Z',direction:'OUTGOING',counterparty_name:'Second customer',counterparty_account_number:'7000005678',amount_cents:2000000,reference_id:'NB-20261013-00018427',running_balance_cents:1200000},{created_at:'2026-10-12T15:30:00Z',direction:'INCOMING',counterparty_name:'First customer',counterparty_account_number:'7000009999',amount_cents:1900000,reference_id:'NB-20261012-00018426',running_balance_cents:3200000}];statementFrom='2026-10-13';statementTo='2026-10-13';",context);
   const rows=vm.runInContext('statementRows()',context);
   assert.equal(rows.length,1);
   assert.equal(rows[0].name,'Second customer');
@@ -33,11 +33,15 @@ test('statements include only the signed-in account history within Philippine da
   assert.equal(rows[0].date,'13 Oct 2026');
   assert.equal(rows[0].time,'08:30:00 AM PHT');
   assert.equal(rows[0].referenceId,'NB-20261013-00018427');
+  assert.equal(rows[0].runningBalance,12000);
   const html=vm.runInContext('statements()',context);
   assert.match(html,/1 transaction in this range/);
   assert.match(html,/Second customer/);
   assert.match(html,/08:30:00 AM PHT/);
   assert.match(html,/NB-20261013-00018427/);
+  for(const heading of ['Debit (PHP)','Credit (PHP)','Running Balance (PHP)'])assert.ok(html.includes(heading));
+  assert.match(html,/₱20,000\.00/);
+  assert.match(html,/₱12,000\.00/);
   assert.doesNotMatch(html,/First customer/);
   assert.match(html,/latest 2 available transfers/);
   vm.runInContext('transactions=bankHistory.map(bankTransaction)',context);
@@ -45,8 +49,11 @@ test('statements include only the signed-in account history within Philippine da
   assert.match(vm.runInContext('activity()',context),/08:30:00 AM PHT/);
   assert.match(vm.runInContext('overview()',context),/NB-20261013-00018427/);
   assert.match(vm.runInContext('activity()',context),/NB-20261013-00018427/);
+  assert.match(vm.runInContext('activity()',context),/₱19,000\.00/);
+  assert.match(vm.runInContext('activity()',context),/₱32,000\.00/);
   assert.match(vm.runInContext('csvRows(statementRows())',context),/13 Oct 2026, 08:30:00 AM PHT/);
   assert.match(vm.runInContext('csvRows(statementRows())',context),/NB-20261013-00018427/);
+  assert.match(vm.runInContext('csvRows(statementRows())',context),/20000\.00,,12000\.00/);
 });
 
 test('banking navigation exposes working account, transfer, statement, and security destinations',()=>{
