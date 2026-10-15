@@ -52,6 +52,7 @@ function bankTransaction(t){
     name:String(t.counterparty_name||'Customer'),
     detail:`Transfer · ${t.direction==='INCOMING'?'Incoming':'Outgoing'} · ${String(t.counterparty_account_number||'')}`,
     referenceId:String(t.reference_id||''),
+    runningBalance:Number(t.running_balance_cents)/100,
     date:occurredAt.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric',timeZone:'Asia/Manila'}),
     time:occurredAt.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true,timeZone:'Asia/Manila'})+' PHT',
     timestamp:t.created_at,
@@ -72,7 +73,7 @@ function statementRows(){
   return bankHistory.filter(t=>{const date=statementDate(t.created_at);return date>=from&&date<=to}).map(bankTransaction);
 }
 function applyBankData(data){
-  if(!data.account||!/^\d{10}$/.test(data.account.accountNumber)||!Number.isSafeInteger(data.account.balanceCents)||!Array.isArray(data.history)||!data.history.every(t=>/^NB-\d{8}-\d{8,}$/.test(t.reference_id)))throw Error('The account response was incomplete.');
+  if(!data.account||!/^\d{10}$/.test(data.account.accountNumber)||!Number.isSafeInteger(data.account.balanceCents)||!Array.isArray(data.history)||!data.history.every(t=>/^NB-\d{8}-\d{8,}$/.test(t.reference_id)&&Number.isSafeInteger(t.running_balance_cents)&&t.running_balance_cents>=0))throw Error('The account response was incomplete.');
   bankAccount=data.account;
   balance=data.account.balanceCents/100;
   bankHistory=data.history;
