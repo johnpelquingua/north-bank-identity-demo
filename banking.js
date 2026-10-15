@@ -168,7 +168,7 @@ transfer=function(){
       </div>
       <div class="recognize-mfa" id="recognize-mfa" hidden><div class="recognize-mfa-notice"><strong>Use another way to verify</strong><p>Face verification could not be completed. Choose an enrolled PingOne method to approve this pending transfer.</p></div><div id="recognize-mfa-methods"></div><div id="recognize-mfa-action"></div></div>
       <p class="recognize-status" id="recognize-message" role="status"></p><div id="recognize-camera"></div><p class="error transfer-error" id="recognize-error" role="alert" hidden></p>
-      <div class="transfer-footer recognize-footer"><button type="button" class="btn" id="recognize-mfa-switch">Use PingOne MFA instead</button><button type="button" class="btn secondary" id="recognize-cancel">Cancel transfer</button></div>`;
+      <div class="transfer-footer recognize-footer"><button type="button" class="btn" id="recognize-mfa-switch" hidden>Use PingOne MFA instead</button><button type="button" class="btn secondary" id="recognize-cancel">Cancel transfer</button></div>`;
     dialog.append(panel);
     panel.querySelector('#recognize-amount').textContent=money(payload.amountCents/100);
     panel.querySelector('#recognize-recipient').textContent=payload.recipientAccountNumber;
@@ -180,10 +180,11 @@ transfer=function(){
     panel.querySelector('#recognize-cancel').onclick=()=>dialog.close();
     const message=panel.querySelector('#recognize-message'),failure=panel.querySelector('#recognize-error');
     const camera=panel.querySelector('#recognize-camera'),options=panel.querySelector('#recognize-options');
-    let busy=false,usingMfa=false,mfaState='',mfaFlow=null;
+    let busy=false,usingMfa=false,faceFailures=0,activeScan=null,mfaState='',mfaFlow=null;
     const mfaPanel=panel.querySelector('#recognize-mfa'),mfaMethods=panel.querySelector('#recognize-mfa-methods'),mfaAction=panel.querySelector('#recognize-mfa-action');
     const mfaSwitch=panel.querySelector('#recognize-mfa-switch');
     mfaSwitch.onclick=()=>openMfa();
+    dialog.addEventListener('close',()=>activeScan?.observer?.disconnect(),{once:true});
     const mfaLabels={TOTP:'Authenticator app',EMAIL:'Email code',FIDO2:'Passkey or security key',MOBILE:'PingID mobile app'};
     async function completeMfa(){
       message.textContent='Confirming PingOne verification and sending transfer…';
@@ -239,7 +240,7 @@ transfer=function(){
     }
     async function openMfa(preserveFaceError=false){
       if(!dialog.open||(usingMfa&&busy))return;
-      usingMfa=true;busy=true;mfaSwitch.hidden=true;failure.hidden=!preserveFaceError;options.hidden=true;camera.replaceChildren();
+      usingMfa=true;busy=true;activeScan?.observer?.disconnect();mfaSwitch.hidden=true;failure.hidden=!preserveFaceError;options.hidden=true;camera.replaceChildren();
       panel.querySelector('#recognize-title').textContent='Verify this transfer';
       panel.querySelector('.recognize-prompt').textContent='PingOne MFA';
       mfaPanel.querySelector('p').textContent=enrolled
@@ -251,14 +252,26 @@ transfer=function(){
       try{const result=await bankRequest('POST',{...payload,action:'mfa-start'});mfaState=result.state;renderMfa(result)}
       catch(error){showMfaError(error)}finally{busy=false}
     }
-    function faceFailed(error){
+    function faceFailed(error,keepCamera=false,scan=activeScan){
       if(usingMfa||!dialog.open)return;
-      busy=false;panel.classList.remove('recognize-busy');camera.replaceChildren();
-      failure.textContent=error.message;failure.hidden=false;
-      openMfa(true);
+      if(scan&&scan!==activeScan)return;
+      if(scan?.failureRecorded)return;
+      if(scan)scan.failureRecorded=true;
+      faceFailures++;busy=false;panel.classList.remove('recognize-busy');
+      if(faceFailures>=3){
+        scan?.observer?.disconnect();camera.replaceChildren();options.hidden=true;
+        failure.textContent='Face verification could not be completed after three attempts. You can use an enrolled PingOne MFA method to approve this transfer.';
+        failure.hidden=false;message.textContent='Your transfer has not been sent.';
+        mfaSwitch.hidden=false;mfaSwitch.focus();mfaSwitch.scrollIntoView({block:'nearest'});
+        return;
+      }
+      failure.textContent=`Face attempt ${faceFailures} of 3 did not finish. ${3-faceFailures} ${faceFailures===2?'attempt':'attempts'} left before PingOne MFA becomes available.`;
+      failure.hidden=false;message.textContent=error.message;
+      if(!keepCamera){scan?.observer?.disconnect();camera.replaceChildren();options.hidden=false}
     }
     async function start(mode){
-      if(busy||usingMfa||!dialog.open)return;
+      if(busy||usingMfa||faceFailures>=3||!dialog.open)return;
+      activeScan?.observer?.disconnect();activeScan=null;camera.replaceChildren();
       busy=true;failure.hidden=true;options.hidden=true;message.textContent='Opening camera…';panel.classList.add('recognize-busy');
       try{
         const refreshed=await bankRequest('POST',{...payload,action:'recognize-challenge'});
@@ -266,7 +279,6 @@ transfer=function(){
         if(!challenge?.authorizationToken)throw Error('Face verification could not start.');
         await loadRecognizeSdk();
         if(!dialog.open||usingMfa)return;
-        camera.replaceChildren();
         const component=document.createElement(mode==='enroll'?'kl-enroll':'kl-auth');
         const service=challenge.serviceUrl.replace(/\/$/,'');
         component.setAttribute('customer',challenge.customer);
@@ -282,17 +294,25 @@ transfer=function(){
         component.setAttribute('size','375');
         component.setAttribute('enable-camera-instructions','');
         let settled=false;
+        const scan={failureRecorded:false,retryVisible:false,observer:null,component};
+        activeScan=scan;
+        // The documented Retry slot lets North Bank count failures that the SDK handles internally.
+        const retryButton=document.createElement('button');
+        retryButton.type='button';retryButton.slot='button-retry';retryButton.className='btn recognize-sdk-retry';
+        retryButton.textContent='Retry face scan';
+        retryButton.onclick=event=>{event.stopPropagation();if(!usingMfa&&faceFailures<3)start(mode)};
+        component.append(retryButton);
         component.addEventListener('error',event=>{
-          if(!dialog.open||usingMfa||settled)return;
+          if(!dialog.open||usingMfa||activeScan!==scan||settled)return;
           settled=true;
           const code=typeof event.message==='string'&&/^[A-Z][A-Z0-9_]{2,80}$/.test(event.message)?event.message:'UNKNOWN';
-          faceFailed(Error(recognizeFailureMessage(code,mode)));
+          faceFailed(Error(recognizeFailureMessage(code,mode)),false,scan);
         },{once:true});
         component.addEventListener('success',async event=>{
-          if(!dialog.open||usingMfa||settled)return;
+          if(!dialog.open||usingMfa||activeScan!==scan||settled)return;
           settled=true;
           const proof=event.detail?.jwt;
-          camera.replaceChildren();
+          scan.observer?.disconnect();camera.replaceChildren();
           if(mode==='enroll'){
             if(typeof proof!=='string'){faceFailed(Error('Face registration did not return a confirmation.'));return}
             message.textContent='Confirming face registration…';
@@ -304,7 +324,7 @@ transfer=function(){
               if(result.recognizeEnrolled!==true)throw Error('Face registration could not be confirmed.');
               session.user.recognizeEnrolled='true';setup.hidden=true;verify.hidden=false;
             }catch(error){faceFailed(error);return}
-            busy=false;
+            faceFailures=0;busy=false;
             panel.classList.remove('recognize-busy');options.hidden=false;
             panel.querySelector('#recognize-title').textContent='Verify this transfer';
             panel.querySelector('.recognize-prompt').textContent='Face verification';
@@ -318,6 +338,17 @@ transfer=function(){
           catch(error){faceFailed(error)}
         },{once:true});
         camera.append(component);panel.classList.remove('recognize-busy');message.textContent=mode==='enroll'?'Set up face verification with your camera.':'Follow the camera instructions to confirm your transfer.';
+        if(typeof ResizeObserver!=='undefined'){
+          const checkRetry=()=>{
+            if(!dialog.open||usingMfa||activeScan!==scan)return;
+            const visible=retryButton.getClientRects().length>0;
+            if(visible&&!scan.retryVisible){scan.retryVisible=true;faceFailed(Error('The face scan did not finish.'),true,scan)}
+            else if(!visible&&scan.retryVisible){scan.retryVisible=false;scan.failureRecorded=false;failure.hidden=true}
+          };
+          scan.observer=new ResizeObserver(checkRetry);
+          scan.observer.observe(retryButton);
+          requestAnimationFrame(checkRetry);
+        }
       }catch(error){faceFailed(error)}
     }
     panel.querySelector('#recognize-verify').onclick=()=>start('auth');
