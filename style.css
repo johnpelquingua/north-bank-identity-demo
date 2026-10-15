@@ -83,4 +83,10 @@
 
 
 .tx-reference{margin-top:5px;color:var(--green);font-size:10px;font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.tablewrap .tx-table{min-width:900px;font-variant-numeric:tabular-nums}
+.tx-table th,.tx-table td{padding-right:22px}
+.tx-table th:first-child,.tx-table td:first-child{min-width:220px}
+.tx-table th:nth-child(n+3),.tx-table td:nth-child(n+3){text-align:right;white-space:nowrap}
+.tx-table th:last-child,.tx-table td:last-child{padding-right:0}
+.tx-table .tx-money{font-weight:600}
 
