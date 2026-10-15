@@ -1,6 +1,7 @@
 // North Bank fictional transfer API. No real funds or payment rails are involved.
 import { authorizeRecognizeUser, recognizeEnrollmentData, recognizeTransactionData, verifyRecognizeProof } from './recognize.mjs';
 import { markRecognizeEnrolled } from './recognize-status.mjs';
+import { openMfaFallback, verifyMfaState, advanceMfaFallback } from './mfa-fallback.mjs';
 const ISSUER = 'https://auth.pingone.sg/22f37616-5cf6-47ee-8111-f0c870cbfa8f/as';
 const CLIENT_ID = 'b62c72a0-1d23-4351-8f67-77054a795169';
 const ALLOWED_ORIGINS = new Set(['https://johnpelquingua.github.io', 'http://localhost:8080']);
@@ -164,6 +165,22 @@ export async function handleBankRequest(request, dependencies = {}) {
       }
       return response({ recognizeEnrolled: true }, 200, origin);
     }
+    if (input.action === 'mfa-start') {
+      try { return response(await openMfaFallback(claims.sub, transferInput, getEnv, fetcher, cryptoApi), 200, origin); }
+      catch (error) { throw new BankError(error.message, 503); }
+    }
+    if (input.action === 'mfa-step' || input.action === 'mfa-complete') {
+      let flowId, flow;
+      try {
+        flowId = await verifyMfaState(input.mfaState, claims.sub, transferInput, getEnv, cryptoApi);
+        flow = await advanceMfaFallback(flowId, input.action === 'mfa-complete' ? 'status' : input.mfaAction, { ...input, origin }, getEnv, fetcher);
+      } catch (error) { throw new BankError(error.message, 400); }
+      if (flow.userId !== claims.sub) throw new BankError('Verification belongs to another user.', 403);
+      if (input.action === 'mfa-step') return response({ mfa: flow }, 200, origin);
+      if (flow.status !== 'COMPLETED' || !flow.selectedDeviceId) {
+        throw new BankError('Complete PingOne MFA before sending this transfer.', 403);
+      }
+    }
     let faceVerified = false;
     if (input.recognizeJwt !== undefined) {
       if (getEnv('RECOGNIZE_ENABLED') !== 'true') throw new BankError('Face verification is not ready.', 503);
@@ -179,11 +196,17 @@ export async function handleBankRequest(request, dependencies = {}) {
     try { receipt = await rpc('make_demo_transfer', {
       p_issuer: ISSUER, p_sender_subject: claims.sub, p_recipient_account_number: input.recipientAccountNumber,
       p_amount_cents: input.amountCents, p_request_id: input.requestId, p_face_verified: faceVerified,
+      p_mfa_verified: input.action === 'mfa-complete',
     }, fetcher, getEnv); }
     catch (error) {
       if (error.code !== 'RECOGNIZE_REQUIRED') throw error;
-      return response({ code: 'RECOGNIZE_REQUIRED', error: error.message,
-        recognize: await recognizeChallenge(claims, transactionData, enrollmentTransactionData, getEnv, cryptoApi) }, 428, origin);
+      let recognize = null;
+      try { recognize = await recognizeChallenge(claims, transactionData, enrollmentTransactionData, getEnv, cryptoApi); }
+      catch { /* PingOne MFA remains available when the face service is down. */ }
+      if (!recognize && (!/^[0-9a-f-]{36}$/i.test(getEnv('PINGONE_WORKER_CLIENT_ID') || '') || !getEnv('PINGONE_WORKER_CLIENT_SECRET'))) {
+        throw new BankError('Face verification is not ready and PingOne MFA is unavailable. Your transfer was not sent.', 503);
+      }
+      return response({ code: 'RECOGNIZE_REQUIRED', error: error.message, recognize }, 428, origin);
     }
     const refreshed = await rpc('ensure_demo_account', { p_issuer: ISSUER, p_subject: claims.sub, p_display_name: label }, fetcher, getEnv);
     return response({ receipt, recognizeEnrollmentRecorded, ...await accountView(refreshed[0], fetcher, getEnv) }, 200, origin);

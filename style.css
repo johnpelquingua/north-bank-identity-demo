@@ -58,6 +58,16 @@
 #recognize-error:not([hidden]){margin-top:15px}
 .recognize-footer{margin-top:20px}
 .recognize-footer .btn{flex:none;width:100%}
+.recognize-consent,.recognize-mfa-notice{padding:16px;border:1px solid #d8e5dc;border-radius:12px;background:#f5f9f5;color:#244638;font-size:12px;line-height:1.55}
+.recognize-consent p,.recognize-mfa-notice p{margin:7px 0 14px;color:#526c5c}
+.recognize-consent label{display:flex;align-items:flex-start;gap:10px;margin:0 0 16px;line-height:1.5}
+.recognize-consent input{width:18px;min-height:18px;flex:none;margin:0}
+.recognize-consent .btn{width:100%}
+.recognize-mfa{display:grid;gap:13px;margin-top:16px}
+#recognize-mfa-methods{display:grid;gap:8px}
+#recognize-mfa-action{margin-top:2px}
+.recognize-mfa-code{display:grid;gap:10px}
+.recognize-mfa-code .btn{width:100%}
 @media(max-width:520px){.bank-transfer-dialog{padding:23px 18px;border-radius:16px}.transfer-header h2,.transfer-header h3{font-size:21px}.recognize-choice{grid-template-columns:34px minmax(0,1fr) auto;padding:12px}.recognize-choice-icon{width:34px;height:34px}.recognize-choice strong{font-size:13px}}
 @media(prefers-reduced-motion:reduce){.btn,.action,.recognize-choice{transition:none}.recognize-busy .recognize-status:before{animation:none}}
 

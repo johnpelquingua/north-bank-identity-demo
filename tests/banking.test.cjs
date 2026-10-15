@@ -59,6 +59,40 @@ test('a face-required transfer fails closed when Recognize is not configured',as
   assert.equal(response.status,503);
   assert.match((await response.json()).error,/not ready/);
 });
+
+test('a pending transfer is sent only after the same user completes the PingOne MFA challenge',async()=>{
+  const f=await setup();f.calls.length=0;
+  const subject='788d4931-6936-43f2-82ff-178f5762298a';
+  const id='03e1897e-33b0-40b9-b54e-68236769b1fa';
+  const device='ea055ca3-2b5b-4766-9628-95fc03f4ec9b';
+  const body={recipientAccountNumber:'7000000002',amountCents:2000001,requestId:'3085575d-44c0-4e3a-84eb-97f6de1a0d86'};
+  let completed=false;
+  const values={SUPABASE_URL:'https://test.supabase.co',SUPABASE_SECRET_KEYS:JSON.stringify({default:'sb_secret_test'}),
+    PINGONE_WORKER_CLIENT_ID:'b62c72a0-1d23-4351-8f67-77054a795169',PINGONE_WORKER_CLIENT_SECRET:'test-secret'};
+  const fetcher=async(url,options)=>{
+    if(url.endsWith('/as/token')&&url.includes('auth.pingone.sg'))return Response.json({access_token:'worker-token'});
+    if(url.includes('/deviceAuthentications'))return Response.json({id,user:{id:subject},status:completed?'COMPLETED':'OTP_REQUIRED',
+      selectedDevice:{id:device},_embedded:{devices:[{id:device,type:'EMAIL',status:'ACTIVE'}]}},{status:options.method==='POST'&&url.endsWith('/deviceAuthentications')?201:200});
+    if(url.endsWith('/make_demo_transfer')&&!completed)return Response.json({message:'RECOGNIZE_REQUIRED'},{status:400});
+    return f.dependencies.fetcher(url,options);
+  };
+  const deps={...f.dependencies,fetcher,getEnv:name=>values[name]};
+  const headers={Authorization:'Bearer '+await f.token(subject),Origin:'https://johnpelquingua.github.io'};
+  const request=input=>new Request('https://bank.test',{method:'POST',headers,body:JSON.stringify(input)});
+  const start=await f.handleBankRequest(request({...body,action:'mfa-start'}),deps);
+  assert.equal(start.status,200);
+  const state=(await start.json()).state;
+  const denied=await f.handleBankRequest(request({...body,action:'mfa-complete',mfaState:state}),deps);
+  assert.equal(denied.status,403);
+  assert.equal(f.calls.some(call=>call.url.endsWith('/make_demo_transfer')),false);
+  completed=true;
+  const accepted=await f.handleBankRequest(request({...body,action:'mfa-complete',mfaState:state}),deps);
+  assert.equal(accepted.status,200);
+  const transfer=f.calls.find(call=>call.url.endsWith('/make_demo_transfer'));
+  assert.equal(JSON.parse(transfer.options.body).p_mfa_verified,true);
+  const changed=await f.handleBankRequest(request({...body,amountCents:100,action:'mfa-complete',mfaState:state}),deps);
+  assert.equal(changed.status,400);
+});
 test('refreshing a face challenge never sends the transfer',async()=>{
   const f=await setup();f.calls.length=0;
   const pair=await webcrypto.subtle.generateKey({name:'RSASSA-PKCS1-v1_5',modulusLength:2048,

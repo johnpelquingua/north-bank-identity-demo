@@ -185,6 +185,19 @@ The **P1R enrolled** badge is a directory status indicator. A transfer still nee
 
 If face enrollment succeeds but the badge stays pending, check the `bank-demo` Edge Function logs for **Recognize directory status update failed**. Verify the Worker app role, its secrets, the custom attribute name, and that all three function files were deployed. Do not share Worker credentials or full tokens when troubleshooting. If `/userinfo` lacks the claim after the directory value appears, recheck the OIDC attribute mapping and sign in again.
 
+### PingOne MFA fallback for a high-risk transfer
+
+For this **demo**, the transfer pop-up shows a face registration notice for a user whose PingOne `recognizeEnrolled` claim is not `true`. The user consents, registers their face, and then chooses **Continue to verify transfer** for a separate approval scan. A returning enrolled user sees the approval scan directly. After three P1R errors of any kind, the same pop-up lists the user's active PingOne MFA devices. It can check an authenticator or email code, a passkey, or a PingID mobile push. The transfer remains pending until PingOne reports that the device authentication completed for the signed-in user. The server binds that challenge to the pending account, amount, and request ID for five minutes. A browser flag, button click, or enrollment alone cannot send it.
+
+This fallback after *any* face error, including mismatch or liveness failure, is a sandbox demonstration rule. A production bank should decide which error categories can fall back before using this flow.
+
+1. In **PingOne Admin → Applications → Applications → [your Worker app] → Roles**, grant the Worker app permission to **authenticate an MFA device** (`mfa:authenticate:device`) in the North Bank environment. Keep its existing user-update permission for the P1R badge. The existing `PINGONE_WORKER_CLIENT_ID` and `PINGONE_WORKER_CLIENT_SECRET` Supabase secrets are reused; do not put them in the web page. The code defaults to the North Bank Authenticator MFA policy ID shown in this sandbox. If that policy differs, set `PINGONE_MFA_POLICY_ID` as an Edge Function secret.
+2. In **Supabase → SQL Editor**, run [`supabase/migrations/202610150001_mfa_fallback.sql`](supabase/migrations/202610150001_mfa_fallback.sql). This updates the transfer database rule to accept either a server-verified P1R proof or a server-verified PingOne MFA result. The old RPC signature is removed. Transfers may pause briefly until the Edge Function is deployed.
+3. Deploy the existing `bank-demo` Edge Function from this repository: `npx supabase@latest functions deploy bank-demo --no-verify-jwt`. Its bundle must include `index.mjs`, `recognize.mjs`, `recognize-status.mjs`, and the new `mfa-fallback.mjs`, each exactly once. Keep **Verify JWT with legacy secret** off. Publish the updated `index.html`, `banking.js`, and `style.css` through the normal GitHub Pages workflow.
+4. Test with a user whose `recognizeEnrolled` claim is unset and one whose claim is `true`. For a high-risk fictional transfer, confirm that registration never sends money and the second scan is explicit. Cause three P1R errors; the PingOne method list should appear inside the transfer pop-up. Enter a wrong MFA code and confirm balances stay unchanged. Then complete an enrolled method and confirm only the original pending transfer is sent. Cancel a challenge and confirm no transfer is recorded.
+
+If the method list does not load, check the `bank-demo` logs and the Worker app's `mfa:authenticate:device` permission. The selected MFA policy must allow the desired methods, and each method must be active for that user. PingOne account or method lockout still applies.
+
 ## Project files
 
 | Path | Purpose |
@@ -194,7 +207,9 @@ If face enrollment succeeds but the badge stays pending, check the `bank-demo` E
 | `app.js` | UI, sample data, PingOne OIDC flow |
 | `banking.js` | Shared fictional accounts, transfers, and history UI |
 | `supabase/migrations/202610130001_bank_demo.sql` | Atomic fictional balance and transfer logic |
+| `supabase/migrations/202610150001_mfa_fallback.sql` | Transfer rule accepting server-verified P1R or PingOne MFA |
 | `supabase/functions/bank-demo/index.mjs` | PingOne token verification and protected database API |
+| `supabase/functions/bank-demo/mfa-fallback.mjs` | Pending-transfer-bound PingOne MFA challenge and verification |
 | `signon.html`, `signon.css`, `signon.js` | Main-page PingOne flow form and legacy sign-on URL handler |
 | `tests/auth.test.cjs` | Token, issuer, and CSV security checks |
 | `.github/workflows/checks.yml` | CI syntax and test checks |

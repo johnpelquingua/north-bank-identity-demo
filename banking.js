@@ -16,9 +16,7 @@ async function bankRequest(method,body){
 }
 
 let recognizeSdkPromise;
-function recognizeEnrollmentKey(){return 'north.recognize.enrolled.'+encodeURIComponent(session?.user?.sub||'')}
-function hasRecognizeEnrollment(){if(session?.user?.recognizeEnrolled==='true')return true;try{return localStorage.getItem(recognizeEnrollmentKey())==='1'}catch{return false}}
-function rememberRecognizeEnrollment(){try{localStorage.setItem(recognizeEnrollmentKey(),'1')}catch{}}
+function hasRecognizeEnrollment(){return session?.user?.recognizeEnrolled==='true'}
 function recognizeFailureMessage(code,mode){
   const messages={
     MEDIA_DEVICES_EMPTY_VIDEO_INPUT_LABEL:'Allow camera access in your browser, then try again.',
@@ -154,7 +152,7 @@ transfer=function(){
   document.body.append(dialog);dialog.addEventListener('close',()=>dialog.remove());dialog.querySelector('#cancel-transfer').onclick=()=>dialog.close();
   let requestId=crypto.randomUUID();
   dialog.querySelectorAll('input').forEach(input=>input.oninput=()=>{requestId=crypto.randomUUID()});
-  async function faceStep(payload,firstChallenge){
+  async function faceStep(payload){
     const form=dialog.querySelector('#transfer-form');
     form.hidden=true;
     dialog.querySelector(':scope > .transfer-header').hidden=true;
@@ -166,25 +164,94 @@ transfer=function(){
       <p class="recognize-prompt">Face verification</p>
       <div id="recognize-options" class="recognize-options">
         <button type="button" class="recognize-choice" id="recognize-verify"><span class="recognize-choice-icon" aria-hidden="true">◉</span><span><strong>Verify my face</strong><small>Use your camera to confirm this transfer.</small></span><span class="recognize-choice-arrow" aria-hidden="true">→</span></button>
-        <details class="recognize-help" id="recognize-help"><summary>Need help with face verification?</summary><p>If you have not registered your face yet, set it up before confirming this transfer.</p><button type="button" class="recognize-setup-link" id="recognize-enroll">Set up face verification</button></details>
+        <div class="recognize-consent" id="recognize-setup"><strong>First time using face verification?</strong><p>Register your face with PingOne Recognize first. Your face will be linked to this account. Registration does not send the transfer; a second scan will confirm it.</p><label><input type="checkbox" id="recognize-consent"> I agree to register my face for this demo.</label><button type="button" class="btn" id="recognize-enroll" disabled>Register my face</button></div>
       </div>
+      <div class="recognize-mfa" id="recognize-mfa" hidden><div class="recognize-mfa-notice"><strong>Use another way to verify</strong><p>Face verification could not be completed. Choose an enrolled PingOne method to approve this pending transfer.</p></div><div id="recognize-mfa-methods"></div><div id="recognize-mfa-action"></div></div>
       <p class="recognize-status" id="recognize-message" role="status"></p><div id="recognize-camera"></div><p class="error transfer-error" id="recognize-error" role="alert" hidden></p>
       <div class="transfer-footer recognize-footer"><button type="button" class="btn secondary" id="recognize-cancel">Cancel transfer</button></div>`;
     dialog.append(panel);
     panel.querySelector('#recognize-amount').textContent=money(payload.amountCents/100);
     panel.querySelector('#recognize-recipient').textContent=payload.recipientAccountNumber;
-    const enrollHelp=panel.querySelector('#recognize-help');
-    enrollHelp.hidden=hasRecognizeEnrollment();
+    const setup=panel.querySelector('#recognize-setup'),verify=panel.querySelector('#recognize-verify');
+    const enrolled=hasRecognizeEnrollment();
+    setup.hidden=enrolled;verify.hidden=!enrolled;
+    if(!enrolled){panel.querySelector('#recognize-title').textContent='Set up face verification';panel.querySelector('.recognize-prompt').textContent='Face registration'}
+    panel.querySelector('#recognize-consent').onchange=event=>{panel.querySelector('#recognize-enroll').disabled=!event.target.checked};
     panel.querySelector('#recognize-cancel').onclick=()=>dialog.close();
     const message=panel.querySelector('#recognize-message'),failure=panel.querySelector('#recognize-error');
     const camera=panel.querySelector('#recognize-camera'),options=panel.querySelector('#recognize-options');
-    let challenge=firstChallenge,busy=false;
+    let busy=false,faceFailures=0,mfaState='',mfaFlow=null;
+    const mfaPanel=panel.querySelector('#recognize-mfa'),mfaMethods=panel.querySelector('#recognize-mfa-methods'),mfaAction=panel.querySelector('#recognize-mfa-action');
+    const mfaLabels={TOTP:'Authenticator app',EMAIL:'Email code',FIDO2:'Passkey or security key',MOBILE:'PingID mobile app'};
+    async function completeMfa(){
+      message.textContent='Confirming PingOne verification and sending transfer…';
+      const data=await bankRequest('POST',{...payload,action:'mfa-complete',mfaState});
+      if(!dialog.open)return;
+      applyBankData(data);dialog.close();render();toast('Transfer completed with PingOne MFA.');
+    }
+    function renderMfa(flow){
+      const devices=flow.devices?.length?flow.devices:mfaFlow?.devices||[];
+      mfaFlow={...flow,devices};mfaPanel.hidden=false;options.hidden=true;camera.replaceChildren();
+      mfaMethods.innerHTML=devices.map(device=>`<button type="button" class="recognize-choice" data-mfa-device="${esc(device.id)}"><span class="recognize-choice-icon" aria-hidden="true">◈</span><span><strong>${esc(mfaLabels[device.type]||device.type)}</strong>${device.detail?`<small>${esc(device.detail)}</small>`:''}</span><span class="recognize-choice-arrow" aria-hidden="true">→</span></button>`).join('')||'<p>No enrolled PingOne methods are available. Cancel and contact your administrator.</p>';
+      mfaMethods.querySelectorAll('[data-mfa-device]').forEach(button=>button.onclick=()=>mfaStep('select',{deviceId:button.dataset.mfaDevice}));
+      mfaAction.replaceChildren();
+      if(flow.status==='OTP_REQUIRED'){
+        const form=document.createElement('form');form.className='recognize-mfa-code';
+        form.innerHTML='<label for="transfer-mfa-code">Verification code</label><input id="transfer-mfa-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{4,10}" required><button class="btn" type="submit">Verify and send transfer</button>';
+        form.onsubmit=event=>{event.preventDefault();mfaStep('otp',{otp:form.querySelector('input').value.trim()})};mfaAction.append(form);
+      }else if(flow.status==='ASSERTION_REQUIRED'){
+        const button=document.createElement('button');button.className='btn';button.textContent='Continue with passkey';button.onclick=()=>usePasskey(flow);mfaAction.append(button);
+      }else if(flow.status==='PUSH_CONFIRMATION_REQUIRED'){
+        const button=document.createElement('button');button.className='btn';button.textContent='I approved the notification';button.onclick=()=>mfaStep('status',{});mfaAction.append(button);
+      }
+      if(flow.status==='COMPLETED')completeMfa().catch(showMfaError);
+      else if(flow.status==='FAILED'||flow.status==='PUSH_CONFIRMATION_TIMED_OUT')showMfaError(Error('PingOne verification did not finish. Choose another method or cancel.'));
+      else message.textContent='Choose or complete your PingOne verification method.';
+    }
+    function showMfaError(error){
+      failure.textContent=error.message;failure.hidden=false;message.textContent='Your transfer has not been sent.';busy=false;
+      if(!mfaState){
+        mfaPanel.hidden=false;options.hidden=true;mfaMethods.textContent='Your PingOne methods could not be loaded.';
+        mfaAction.innerHTML='<button type="button" class="btn secondary" id="retry-mfa">Try loading methods again</button>';
+        mfaAction.querySelector('button').onclick=openMfa;
+      }
+    }
+    async function mfaStep(action,values){
+      if(busy)return;busy=true;failure.hidden=true;message.textContent='Checking with PingOne…';
+      try{const result=await bankRequest('POST',{...payload,action:'mfa-step',mfaAction:action,mfaState,...values});renderMfa(result.mfa)}
+      catch(error){showMfaError(error)}finally{busy=false}
+    }
+    async function usePasskey(flow){
+      try{
+        const raw=JSON.parse(flow.publicKeyCredentialRequestOptions);
+        const toBytes=value=>Array.isArray(value)?Uint8Array.from(value):decode(value);
+        const toBase64=value=>btoa(String.fromCharCode(...new Uint8Array(value)));
+        raw.challenge=toBytes(raw.challenge);
+        raw.allowCredentials=(raw.allowCredentials||[]).map(item=>({...item,id:toBytes(item.id)}));
+        const credential=await navigator.credentials.get({publicKey:raw});
+        if(!credential)throw Error('Passkey verification was cancelled.');
+        const response=credential.response;
+        const assertion=JSON.stringify({id:credential.id,type:credential.type,rawId:toBase64(credential.rawId),response:{clientDataJSON:toBase64(response.clientDataJSON),authenticatorData:toBase64(response.authenticatorData),signature:toBase64(response.signature),userHandle:response.userHandle?toBase64(response.userHandle):null},clientExtensionResults:credential.getClientExtensionResults()});
+        await mfaStep('assertion',{assertion});
+      }catch(error){showMfaError(error)}
+    }
+    async function openMfa(){
+      if(busy)return;busy=true;failure.hidden=true;message.textContent='Loading your PingOne methods…';
+      try{const result=await bankRequest('POST',{...payload,action:'mfa-start'});mfaState=result.state;renderMfa(result)}
+      catch(error){showMfaError(error)}finally{busy=false}
+    }
+    function faceFailed(error){
+      faceFailures++;busy=false;panel.classList.remove('recognize-busy');camera.replaceChildren();
+      failure.textContent=error.message;failure.hidden=false;
+      if(faceFailures>=3){message.textContent='Three face attempts could not be completed. PingOne MFA is available below.';openMfa()}
+      else{options.hidden=false;message.textContent=`You can try face verification ${3-faceFailures} more ${faceFailures===2?'time':'times'}.`}
+    }
     async function start(mode){
       if(busy||!dialog.open)return;
       busy=true;failure.hidden=true;options.hidden=true;message.textContent='Opening camera…';panel.classList.add('recognize-busy');
       try{
         const refreshed=await bankRequest('POST',{...payload,action:'recognize-challenge'});
-        challenge=refreshed.recognize;
+        const challenge=refreshed.recognize;
         if(!challenge?.authorizationToken)throw Error('Face verification could not start.');
         await loadRecognizeSdk();
         if(!dialog.open)return;
@@ -208,8 +275,7 @@ transfer=function(){
           if(!dialog.open||settled)return;
           settled=true;
           const code=typeof event.message==='string'&&/^[A-Z][A-Z0-9_]{2,80}$/.test(event.message)?event.message:'UNKNOWN';
-          failure.textContent=recognizeFailureMessage(code,mode);
-          failure.hidden=false;options.hidden=false;camera.replaceChildren();busy=false;panel.classList.remove('recognize-busy');message.textContent='Choose an option to try again.';
+          faceFailed(Error(recognizeFailureMessage(code,mode)));
         },{once:true});
         component.addEventListener('success',async event=>{
           if(!dialog.open||settled)return;
@@ -217,29 +283,31 @@ transfer=function(){
           const proof=event.detail?.jwt;
           camera.replaceChildren();
           if(mode==='enroll'){
-            rememberRecognizeEnrollment();enrollHelp.hidden=true;
-            message.textContent='Face setup complete. Updating your profile…';
-            if(typeof proof==='string'){
-              try{
-                const result=await bankRequest('POST',{
-                  action:'recognize-enrollment-complete',recipientAccountNumber:'',amountCents:0,requestId:'',
-                  transferContext:payload,enrollmentJwt:proof,
-                });
-                if(result.recognizeEnrolled===true)session.user.recognizeEnrolled='true';
-              }catch{message.textContent='Face setup complete. Your directory badge is pending; you can still verify this transfer.'}
-            }
+            if(typeof proof!=='string'){faceFailed(Error('Face registration did not return a confirmation.'));return}
+            message.textContent='Confirming face registration…';
+            try{
+              const result=await bankRequest('POST',{
+                action:'recognize-enrollment-complete',recipientAccountNumber:'',amountCents:0,requestId:'',
+                transferContext:payload,enrollmentJwt:proof,
+              });
+              if(result.recognizeEnrolled!==true)throw Error('Face registration could not be confirmed.');
+              session.user.recognizeEnrolled='true';setup.hidden=true;verify.hidden=false;
+            }catch(error){faceFailed(error);return}
             busy=false;
-            await start('auth');
+            panel.classList.remove('recognize-busy');options.hidden=false;
+            panel.querySelector('#recognize-title').textContent='Verify this transfer';
+            panel.querySelector('.recognize-prompt').textContent='Face verification';
+            verify.querySelector('strong').textContent='Continue to verify transfer';
+            message.textContent='Face registration is complete. A separate face scan will approve this transfer.';
             return;
           }
-          if(typeof proof!=='string'){failure.textContent='Face verification did not return a confirmation. Please try again.';failure.hidden=false;options.hidden=false;busy=false;panel.classList.remove('recognize-busy');return}
-          rememberRecognizeEnrollment();enrollHelp.hidden=true;
+          if(typeof proof!=='string'){faceFailed(Error('Face verification did not return a confirmation. Please try again.'));return}
           message.textContent='Confirming transfer…';
           try{const data=await bankRequest('POST',{...payload,recognizeJwt:proof});if(!dialog.open)return;if(data.recognizeEnrollmentRecorded===true)session.user.recognizeEnrolled='true';applyBankData(data);dialog.close();render();toast(data.recognizeEnrollmentRecorded===false&&session.user.recognizeEnrolled!=='true'?'Transfer completed. Your face enrollment badge is pending.':'Transfer completed.')}
-          catch(error){failure.textContent=error.message;failure.hidden=false;options.hidden=false;busy=false;panel.classList.remove('recognize-busy')}
+          catch(error){faceFailed(error)}
         },{once:true});
         camera.append(component);panel.classList.remove('recognize-busy');message.textContent=mode==='enroll'?'Set up face verification with your camera.':'Follow the camera instructions to confirm your transfer.';
-      }catch(error){failure.textContent=error.message;failure.hidden=false;options.hidden=false;busy=false;panel.classList.remove('recognize-busy');message.textContent='Choose an option to try again.'}
+      }catch(error){faceFailed(error)}
     }
     panel.querySelector('#recognize-verify').onclick=()=>start('auth');
     panel.querySelector('#recognize-enroll').onclick=()=>start('enroll');
@@ -254,7 +322,7 @@ transfer=function(){
     const signedIn=session;
     const payload={recipientAccountNumber,amountCents,requestId};
     try{const data=await bankRequest('POST',payload);if(session!==signedIn)return;applyBankData(data);dialog.close();render();toast('Transfer completed. Both account histories have been updated.')}
-    catch(error){if(error.code==='RECOGNIZE_REQUIRED'&&error.recognize){await faceStep(payload,error.recognize);return}errorNode.textContent=error.message;errorNode.hidden=false;submit.disabled=false;submit.textContent='Send transfer'}
+    catch(error){if(error.code==='RECOGNIZE_REQUIRED'){await faceStep(payload);return}errorNode.textContent=error.message;errorNode.hidden=false;submit.disabled=false;submit.textContent='Send transfer'}
   };
   dialog.showModal();
 };

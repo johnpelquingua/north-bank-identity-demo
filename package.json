@@ -4,7 +4,7 @@
   "private": true,
   "description": "Fictional banking interface for PingOne, Active Directory, and MFA integration testing",
   "scripts": {
-    "check": "node --check app.js && node --check banking.js && node --check signon.js && node --check supabase/functions/bank-demo/index.mjs && node --check supabase/functions/bank-demo/recognize.mjs && node --check supabase/functions/bank-demo/recognize-status.mjs && node --check supabase/functions/recognize-jwks/index.mjs && node --check scripts/create-recognize-key.mjs",
+    "check": "node --check app.js && node --check banking.js && node --check signon.js && node --check supabase/functions/bank-demo/index.mjs && node --check supabase/functions/bank-demo/mfa-fallback.mjs && node --check supabase/functions/bank-demo/recognize.mjs && node --check supabase/functions/bank-demo/recognize-status.mjs && node --check supabase/functions/recognize-jwks/index.mjs && node --check scripts/create-recognize-key.mjs",
     "test": "node --test tests/*.test.cjs"
   },
   "engines": {
