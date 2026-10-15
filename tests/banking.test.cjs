@@ -22,7 +22,7 @@ async function setup(){
     calls.push({url,options});
     const name=url.split('/').at(-1);
     if(name==='ensure_demo_account')return Response.json([{id:'aaa',account_number:'7000000001',display_name:'Alice',balance_cents:10000000}]);
-    if(name==='demo_account_history_with_references')return Response.json([]);
+    if(name==='demo_account_history_with_balances')return Response.json([]);
     if(name==='make_demo_transfer')return Response.json({id:'tx',replayed:false});
     throw Error('Unexpected RPC');
   };
