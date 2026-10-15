@@ -98,7 +98,7 @@ async function rpc(name, payload, fetcher, getEnv) {
 }
 
 async function accountView(account, fetcher, getEnv) {
-  const history = await rpc('demo_account_history_with_references', { p_account_id: account.id, p_limit: 100 }, fetcher, getEnv);
+  const history = await rpc('demo_account_history_with_balances', { p_account_id: account.id, p_limit: 100 }, fetcher, getEnv);
   return { account: { accountNumber: account.account_number, displayName: account.display_name, balanceCents: account.balance_cents }, history };
 }
 
