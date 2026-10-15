@@ -180,7 +180,7 @@ transfer=function(){
     panel.querySelector('#recognize-cancel').onclick=()=>dialog.close();
     const message=panel.querySelector('#recognize-message'),failure=panel.querySelector('#recognize-error');
     const camera=panel.querySelector('#recognize-camera'),options=panel.querySelector('#recognize-options');
-    let busy=false,faceFailures=0,mfaState='',mfaFlow=null;
+    let busy=false,mfaState='',mfaFlow=null;
     const mfaPanel=panel.querySelector('#recognize-mfa'),mfaMethods=panel.querySelector('#recognize-mfa-methods'),mfaAction=panel.querySelector('#recognize-mfa-action');
     const mfaLabels={TOTP:'Authenticator app',EMAIL:'Email code',FIDO2:'Passkey or security key',MOBILE:'PingID mobile app'};
     async function completeMfa(){
@@ -213,7 +213,7 @@ transfer=function(){
       if(!mfaState){
         mfaPanel.hidden=false;options.hidden=true;mfaMethods.textContent='Your PingOne methods could not be loaded.';
         mfaAction.innerHTML='<button type="button" class="btn secondary" id="retry-mfa">Try loading methods again</button>';
-        mfaAction.querySelector('button').onclick=openMfa;
+        mfaAction.querySelector('button').onclick=()=>openMfa();
       }
     }
     async function mfaStep(action,values){
@@ -235,16 +235,18 @@ transfer=function(){
         await mfaStep('assertion',{assertion});
       }catch(error){showMfaError(error)}
     }
-    async function openMfa(){
-      if(busy)return;busy=true;failure.hidden=true;message.textContent='Loading your PingOne methods…';
+    async function openMfa(preserveFaceError=false){
+      if(busy)return;
+      busy=true;failure.hidden=!preserveFaceError;options.hidden=true;camera.replaceChildren();
+      mfaPanel.hidden=false;mfaMethods.textContent='Loading your enrolled PingOne methods…';mfaAction.replaceChildren();
+      message.textContent='Loading your PingOne methods…';
       try{const result=await bankRequest('POST',{...payload,action:'mfa-start'});mfaState=result.state;renderMfa(result)}
       catch(error){showMfaError(error)}finally{busy=false}
     }
     function faceFailed(error){
-      faceFailures++;busy=false;panel.classList.remove('recognize-busy');camera.replaceChildren();
+      busy=false;panel.classList.remove('recognize-busy');camera.replaceChildren();
       failure.textContent=error.message;failure.hidden=false;
-      if(faceFailures>=3){message.textContent='Three face attempts could not be completed. PingOne MFA is available below.';openMfa()}
-      else{options.hidden=false;message.textContent=`You can try face verification ${3-faceFailures} more ${faceFailures===2?'time':'times'}.`}
+      openMfa(true);
     }
     async function start(mode){
       if(busy||!dialog.open)return;
