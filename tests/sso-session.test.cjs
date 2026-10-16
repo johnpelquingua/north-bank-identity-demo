@@ -25,7 +25,7 @@ test('the custom domain preserves the existing ledger namespace and rejects unap
   const jwk=await webcrypto.subtle.exportKey('jwk',pair.publicKey);jwk.kid='sso-test';
   const encode=value=>Buffer.from(JSON.stringify(value)).toString('base64url');
   const sign=async iss=>{
-    const now=Math.floor(Date.now()/1000),raw=encode({alg:'RS256',kid:jwk.kid})+'.'+encode({iss,aud:'b62c72a0-1d23-4351-8f67-77054a795169',sub:'alice',iat:now,exp:now+300});
+    const now=Math.floor(Date.now()/1000),raw=encode({alg:'RS256',kid:jwk.kid})+'.'+encode({iss,aud:'b62c72a0-1d23-4351-8f67-77054a795169',sub:'alice',iat:now,exp:now+300,amr:['pwd','mfa']});
     return raw+'.'+Buffer.from(await webcrypto.subtle.sign('RSASSA-PKCS1-v1_5',pair.privateKey,Buffer.from(raw))).toString('base64url');
   };
   let account;
@@ -47,3 +47,4 @@ test('the custom domain preserves the existing ledger namespace and rejects unap
   await assert.rejects(verifyPingOneToken(await sign('https://evil.example/as'),async()=>{fetched=true;},webcrypto),e=>e.status===401);
   assert.equal(fetched,false);
 });
+

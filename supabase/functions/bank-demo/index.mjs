@@ -52,6 +52,7 @@ export async function verifyPingOneToken(token, fetcher = fetch, cryptoApi = cry
     valid = await cryptoApi.subtle.verify('RSASSA-PKCS1-v1_5', key, decodeBase64Url(parts[2]), new TextEncoder().encode(parts[0] + '.' + parts[1]));
   } catch { throw new BankError('Sign in again.', 401); }
   if (!valid) throw new BankError('Sign in again.', 401);
+  if (!Array.isArray(claims.amr) || !claims.amr.includes('mfa')) throw new BankError('Complete MFA setup and sign in again.', 401, 'MFA_REQUIRED');
   return claims;
 }
 
@@ -240,4 +241,5 @@ export async function handleBankRequest(request, dependencies = {}) {
 }
 
 if (typeof Deno !== 'undefined') Deno.serve(request => handleBankRequest(request));
+
 
