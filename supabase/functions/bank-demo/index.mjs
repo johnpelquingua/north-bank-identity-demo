@@ -6,7 +6,7 @@ const ISSUER = 'https://auth.pingone.sg/22f37616-5cf6-47ee-8111-f0c870cbfa8f/as'
 const CUSTOM_ISSUER = 'https://auth.jportal-nsph.com/as';
 const TRUSTED_ISSUERS = new Set([ISSUER,CUSTOM_ISSUER]);
 const CLIENT_ID = 'b62c72a0-1d23-4351-8f67-77054a795169';
-const ALLOWED_ORIGINS = new Set(['https://johnpelquingua.github.io', 'http://localhost:8080']);
+const ALLOWED_ORIGINS = new Set(['https://johnpelquingua.github.io', 'https://north.jportal-nsph.com', 'http://localhost:8080']);
 
 class BankError extends Error {
   constructor(message, status = 400, code = '') { super(message); this.status = status; this.code = code; }
