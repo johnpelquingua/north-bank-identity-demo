@@ -11,7 +11,7 @@ async function setup(){
   const pair=await webcrypto.subtle.generateKey({name:'RSASSA-PKCS1-v1_5',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['sign','verify']);
   const jwk=await webcrypto.subtle.exportKey('jwk',pair.publicKey);jwk.kid='test-key';
   const token=async(sub,overrides={})=>{
-    const now=Math.floor(Date.now()/1000),head=B64({alg:'RS256',kid:'test-key'}),body=B64({iss:ISSUER,aud:CLIENT,sub,iat:now,exp:now+600,...overrides});
+    const now=Math.floor(Date.now()/1000),head=B64({alg:'RS256',kid:'test-key'}),body=B64({iss:ISSUER,aud:CLIENT,sub,iat:now,exp:now+600,amr:['pwd','mfa'],...overrides});
     const bytes=await webcrypto.subtle.sign('RSASSA-PKCS1-v1_5',pair.privateKey,new TextEncoder().encode(head+'.'+body));
     return head+'.'+body+'.'+Buffer.from(bytes).toString('base64url');
   };
@@ -173,4 +173,5 @@ test('a signed enrollment result updates the matching user without sending a tra
   assert.deepEqual(JSON.parse(directoryCalls[0].options.body),{recognizeEnrolled:'true'});
   assert.equal(f.calls.some(call=>call.url.endsWith('/make_demo_transfer')),false);
 });
+
 
