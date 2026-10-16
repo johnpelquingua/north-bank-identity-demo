@@ -1,0 +1,3 @@
+# Demonstration environment. Crawlers must not fetch any path.
+User-agent: *
+Disallow: /
