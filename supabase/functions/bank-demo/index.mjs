@@ -3,6 +3,8 @@ import { authorizeRecognizeUser, recognizeEnrollmentData, recognizeTransactionDa
 import { markRecognizeEnrolled } from './recognize-status.mjs';
 import { openMfaFallback, verifyMfaState, advanceMfaFallback } from './mfa-fallback.mjs';
 const ISSUER = 'https://auth.pingone.sg/22f37616-5cf6-47ee-8111-f0c870cbfa8f/as';
+const CUSTOM_ISSUER = 'https://auth.jportal-nsph.com/as';
+const TRUSTED_ISSUERS = new Set([ISSUER,CUSTOM_ISSUER]);
 const CLIENT_ID = 'b62c72a0-1d23-4351-8f67-77054a795169';
 const ALLOWED_ORIGINS = new Set(['https://johnpelquingua.github.io', 'http://localhost:8080']);
 
@@ -23,7 +25,7 @@ export async function verifyPingOneToken(token, fetcher = fetch, cryptoApi = cry
   if (header.alg !== 'RS256' || typeof header.kid !== 'string' || !header.kid) throw new BankError('Sign in again.', 401);
   const seconds = now / 1000;
   const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
-  if (claims.iss !== ISSUER || !audiences.includes(CLIENT_ID) ||
+  if (!TRUSTED_ISSUERS.has(claims.iss) || !audiences.includes(CLIENT_ID) ||
       ((audiences.length > 1 || claims.azp) && claims.azp !== CLIENT_ID) ||
       typeof claims.exp !== 'number' || claims.exp <= seconds ||
       typeof claims.iat !== 'number' || claims.iat > seconds + 60 ||
@@ -31,12 +33,12 @@ export async function verifyPingOneToken(token, fetcher = fetch, cryptoApi = cry
       typeof claims.sub !== 'string' || !claims.sub || claims.sub.length > 200) {
     throw new BankError('Sign in again.', 401);
   }
-  const discoveryResponse = await fetcher(ISSUER + '/.well-known/openid-configuration');
+  const discoveryResponse = await fetcher(claims.iss + '/.well-known/openid-configuration');
   if (!discoveryResponse.ok) throw new BankError('Identity verification is temporarily unavailable.', 503);
   const discovery = await discoveryResponse.json();
   const jwksUrl = new URL(discovery.jwks_uri);
-  if (discovery.issuer !== ISSUER || jwksUrl.origin !== new URL(ISSUER).origin ||
-      !jwksUrl.pathname.startsWith(new URL(ISSUER).pathname + '/') || jwksUrl.search || jwksUrl.hash) {
+  if (discovery.issuer !== claims.iss || jwksUrl.origin !== new URL(claims.iss).origin ||
+      !jwksUrl.pathname.startsWith(new URL(claims.iss).pathname + '/') || jwksUrl.search || jwksUrl.hash) {
     throw new BankError('Identity verification is temporarily unavailable.', 503);
   }
   const keysResponse = await fetcher(jwksUrl.href);
@@ -53,11 +55,31 @@ export async function verifyPingOneToken(token, fetcher = fetch, cryptoApi = cry
   return claims;
 }
 
+export async function verifyActiveSession(request,claims,fetcher=fetch,getEnv=()=>undefined) {
+  const token=request.headers.get('X-PingOne-Access-Token');
+  // Old clients can be retired by enabling this after the browser migration.
+  if (!token && claims.iss === ISSUER && getEnv('NORTH_BANK_REQUIRE_ACTIVE_SESSION') !== 'true') return;
+  if (!TRUSTED_ISSUERS.has(claims.iss) || typeof token !== 'string' || !token || token.length > 16000 || /\s/.test(token)) {
+    throw new BankError('Your sign-in session has ended. Sign in again.',401);
+  }
+  let response;
+  try {
+    response=await fetcher(claims.iss+'/userinfo',{
+      headers:{Authorization:'Bearer '+token},cache:'no-store',redirect:'error',
+      signal:AbortSignal.timeout(10000)
+    });
+  } catch {throw new BankError('Identity verification is temporarily unavailable.',503);}
+  if (response.status===401 || response.status===403) throw new BankError('Your sign-in session has ended. Sign in again.',401);
+  if (!response.ok) throw new BankError('Identity verification is temporarily unavailable.',503);
+  const profile=await response.json();
+  if (profile.sub!==claims.sub) throw new BankError('Sign in again.',401);
+}
+
 function response(body, status, origin) {
   const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Vary': 'Origin' };
   if (origin && ALLOWED_ORIGINS.has(origin)) {
     headers['Access-Control-Allow-Origin'] = origin;
-    headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type';
+    headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type, X-PingOne-Access-Token';
     headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS';
   }
   return new Response(JSON.stringify(body), { status, headers });
@@ -129,6 +151,7 @@ export async function handleBankRequest(request, dependencies = {}) {
     const match = /^Bearer (\S+)$/.exec(request.headers.get('Authorization') || '');
     if (!match) throw new BankError('Sign in again.', 401);
     const claims = await verifyPingOneToken(match[1], fetcher, cryptoApi);
+    await verifyActiveSession(request,claims,fetcher,getEnv);
     const label = String(claims.name || claims.preferred_username || claims.email || 'Customer').slice(0, 100);
     const accounts = await rpc('ensure_demo_account', { p_issuer: ISSUER, p_subject: claims.sub, p_display_name: label }, fetcher, getEnv);
     const account = accounts?.[0];
