@@ -8,7 +8,7 @@ const bankInitialTransactions=transactions.slice();
 async function bankRequest(method,body){
   if(!session?.idToken)throw Error('Sign in again to view your account.');
   let result;
-  try{result=await fetch(bankApiUrl,{method,headers:{Authorization:'Bearer '+session.idToken,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined,cache:'no-store',signal:AbortSignal.timeout(20000)})}
+  try{result=await fetch(bankApiUrl,{method,headers:{Authorization:'Bearer '+session.idToken,'Content-Type':'application/json','X-PingOne-Access-Token':session.accessToken},body:body?JSON.stringify(body):undefined,cache:'no-store',signal:AbortSignal.timeout(20000)})}
   catch{throw Error('The transfer service is unavailable. Try again shortly.')}
   let data={};try{data=await result.json()}catch{}
   if(!result.ok){const error=Error(data.error||'The transfer service is unavailable.');error.code=data.code;error.recognize=data.recognize;throw error}
