@@ -35,7 +35,7 @@ test('bank browser sends password-only callback to shared setup before loading b
   context.loadBanking=async()=>{bankCalls++;};
   vm.runInContext('config='+JSON.stringify(config),context);
   await context.callback();
-  assert.equal(destination,'https://jportal-nsph.com/auth/enroll?return=north');
+  assert.equal(destination,'https://jportal-nsph.com/north-signon?setup=1');
   assert.equal(bankCalls,0);
   assert.equal(vm.runInContext('session',context),null);
 });
