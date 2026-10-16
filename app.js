@@ -1,9 +1,10 @@
 'use strict';
 const app=document.querySelector('#app');
 const baseURL=new URL('./',location.href).href;
-const defaultConfig={issuer:'https://auth.pingone.sg/22f37616-5cf6-47ee-8111-f0c870cbfa8f/as',clientId:'b62c72a0-1d23-4351-8f67-77054a795169'};
+const defaultConfig={issuer:'https://auth.jportal-nsph.com/as',clientId:'b62c72a0-1d23-4351-8f67-77054a795169'};
 const safeParse=(v,f)=>{try{return JSON.parse(v)||f}catch{return f}};
 let config=safeParse(localStorage.getItem('north.config'),defaultConfig);
+if(config.clientId===defaultConfig.clientId&&config.issuer==='https://auth.pingone.sg/22f37616-5cf6-47ee-8111-f0c870cbfa8f/as')config={...config,issuer:defaultConfig.issuer};
 let session=null,page='overview',loginError='',expiryTimer;
 let mfaDevice=null,mfaError='',mfaFinished=false,mfaNeedsEnable=false,mfaEnrollmentOpen=false,mfaPageError='';
 const sample={name:'Alex Morgan',given_name:'Alex',family_name:'Morgan',email:'alex.morgan@example.com',phone_number:'',address:'',title:'',department:'',company:'',employeeID:'',employeeNumber:'',employeeType:'',sub:'demo-user'};
@@ -38,7 +39,7 @@ function render(){
   document.querySelectorAll('[data-page]').forEach(button=>button.onclick=()=>{if(!session&&button.dataset.page!=='setup'){page='overview';login()}else{page=button.dataset.page;render()}});
   document.querySelectorAll('#signout,#mobile-signout').forEach(button=>button.onclick=signout);
   document.querySelectorAll('#back-login,#back-login-top').forEach(button=>button.onclick=()=>{page='overview';login()});
-  document.querySelector('#access-hub')?.addEventListener('click',()=>location.assign('https://jportal-nsph.com/'));
+  document.querySelector('#access-hub')?.addEventListener('click',()=>location.assign('https://jportal-nsph.com/?entry=north-bank'));
   bindSettings();
   document.querySelectorAll('[data-transfer]').forEach(button=>button.onclick=transfer);
   document.querySelectorAll('[data-export]').forEach(button=>button.onclick=exportCSV);
@@ -70,14 +71,36 @@ function transfer(){const d=document.createElement('dialog');d.innerHTML=`<h2>Ma
 function csvText(value){return '"'+String(value).replace(/^[=+\-@\t\r]/,"'$&").replaceAll('"','""')+'"'}
 function csvRows(rows){const hasTime=rows.some(t=>t.time);return [`Reference ID,Description,Type,${hasTime?'Date & Time (PHT)':'Date'},Debit (PHP),Credit (PHP),Running Balance (PHP)`,...rows.map(t=>[csvText(t.referenceId||''),csvText(t.name),csvText(t.detail),csvText(t.time?`${t.date}, ${t.time}`:t.date),t.amount<0?(-t.amount).toFixed(2):'',t.amount>0?t.amount.toFixed(2):'',Number.isFinite(t.runningBalance)?t.runningBalance.toFixed(2):''].join(','))].join('\r\n')}
 function exportCSV(){const csv=csvRows(transactions);const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='north-bank-transactions.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Transaction history exported.')}
-function validateIssuer(s){const u=new URL(s);if(u.protocol!=='https:'||!/^auth\.pingone\.(com|eu|asia|com\.au|ca|sg)$/.test(u.hostname)||!/^\/[a-zA-Z0-9-]+\/as$/.test(u.pathname)||u.search||u.hash||u.username||u.password||u.port)throw Error('Enter a valid PingOne regional issuer URL ending in /ENVIRONMENT_ID/as.');return u}
+function validateIssuer(s){
+  const u=new URL(s);
+  const standard=/^auth\.pingone\.(com|eu|asia|com\.au|ca|sg)$/.test(u.hostname)&&/^\/[a-zA-Z0-9-]+\/as$/.test(u.pathname);
+  const custom=u.hostname==='auth.jportal-nsph.com'&&u.pathname==='/as';
+  if(u.protocol!=='https:'||!(standard||custom)||u.search||u.hash||u.username||u.password||u.port)throw Error('Enter an approved PingOne issuer URL.');
+  return u;
+}
 function allowedEndpoint(s){const u=new URL(s),i=validateIssuer(config.issuer);if(u.origin!==i.origin||!u.pathname.startsWith(i.pathname+'/')||u.username||u.password)throw Error('Discovery returned an unexpected endpoint.');return u.href}
 async function getJSON(url,options){const target=new URL(url);let r;try{r=await fetch(url,{...options,signal:AbortSignal.timeout(20000)})}catch{throw Error('Browser could not reach '+target.hostname+target.pathname+'. Check the North Bank app’s PingOne CORS origin and the browser Network tab.')}if(!r.ok)throw Error('PingOne request to '+target.pathname+' failed ('+r.status+'). Check application settings and scopes.');return r.json()}
 async function discovery(){validateIssuer(config.issuer);const d=await getJSON(config.issuer+'/.well-known/openid-configuration');if(d.issuer!==config.issuer)throw Error('Issuer mismatch in discovery.');['authorization_endpoint','token_endpoint','userinfo_endpoint','jwks_uri'].forEach(k=>allowedEndpoint(d[k]));if(d.end_session_endpoint)allowedEndpoint(d.end_session_endpoint);return d}
 const b64=bytes=>btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'');
 const random=()=>b64(crypto.getRandomValues(new Uint8Array(32)));
 const decode=s=>Uint8Array.from(atob(s.replaceAll('-','+').replaceAll('_','/')),c=>c.charCodeAt(0));
-async function startLogin(){const status=document.querySelector('#flow-status');if(status)status.textContent='Preparing secure sign-in…';const d=await discovery(),verifier=random(),state=random(),nonce=random();const challenge=b64(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(verifier))));sessionStorage.setItem('north.pending',JSON.stringify({verifier,state,nonce,created:Date.now(),issuer:config.issuer,clientId:config.clientId,mode:'flow'}));const u=new URL(d.authorization_endpoint);u.search=new URLSearchParams({client_id:config.clientId,response_type:'code',response_mode:'pi.flow',redirect_uri:baseURL,scope:'openid profile email phone address p1:read:device p1:create:device p1:update:device p1:update:userMfaEnabled',state,nonce,code_challenge:challenge,code_challenge_method:'S256',prompt:'login',max_age:'0'}).toString();const flow=await getJSON(u.href,{credentials:'include',cache:'no-store',redirect:'error',headers:{'X-Requested-With':'ping-sdk'}});beginFlow(flow)}
+function shouldReauthenticate(query=new URLSearchParams(location.search)){
+  // Entry hints affect prompting only. PingOne still authenticates and authorizes.
+  return query.get('entry')!=='hub'&&sessionStorage.getItem('north.returning')!=='1';
+}
+async function startLogin(){
+  const status=document.querySelector('#flow-status');if(status)status.textContent='Opening secure sign-in…';
+  const fresh=shouldReauthenticate();
+  const d=await discovery(),verifier=random(),state=random(),nonce=random();
+  const challenge=b64(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(verifier))));
+  sessionStorage.setItem('north.pending',JSON.stringify({verifier,state,nonce,created:Date.now(),issuer:config.issuer,clientId:config.clientId,mode:'redirect'}));
+  const u=new URL(d.authorization_endpoint);
+  u.search=new URLSearchParams({client_id:config.clientId,response_type:'code',redirect_uri:baseURL,
+    scope:'openid profile email phone address p1:read:device p1:create:device p1:update:device p1:update:userMfaEnabled',
+    state,nonce,code_challenge:challenge,code_challenge_method:'S256'}).toString();
+  if(fresh){u.searchParams.set('prompt','login');u.searchParams.set('max_age','0');}
+  location.assign(u.href);
+}
 async function validateIDToken(token,d,pending){const parts=token.split('.');if(parts.length!==3)throw Error('Malformed ID token.');const parse=s=>JSON.parse(new TextDecoder().decode(decode(s)));const h=parse(parts[0]),c=parse(parts[1]);if(h.alg!=='RS256'||!h.kid)throw Error('Configure this test application to sign ID tokens with RS256.');const keys=await getJSON(d.jwks_uri);const jwk=keys.keys.find(k=>k.kid===h.kid&&k.kty==='RSA'&&(!k.use||k.use==='sig'));if(!jwk)throw Error('ID token signing key was not found.');const key=await crypto.subtle.importKey('jwk',jwk,{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['verify']);if(!await crypto.subtle.verify('RSASSA-PKCS1-v1_5',key,decode(parts[2]),new TextEncoder().encode(parts[0]+'.'+parts[1])))throw Error('ID token signature is invalid.');const now=Date.now()/1000,aud=Array.isArray(c.aud)?c.aud:[c.aud];if(c.iss!==config.issuer||!aud.includes(config.clientId)||((aud.length>1||c.azp)&&c.azp!==config.clientId)||c.nonce!==pending.nonce||typeof c.exp!=='number'||c.exp<=now||typeof c.iat!=='number'||c.iat>now+60||c.nbf>now+60||typeof c.sub!=='string'||!c.sub)throw Error('ID token claims validation failed.');return c}
 
 const mfaUuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -123,9 +146,10 @@ function fidoAttestation(credential){
 }
 function mfaDeviceUrl(userId,deviceId){
   const issuer=validateIssuer(config.issuer);
-  const env=issuer.pathname.split('/')[1];
+  const custom=issuer.hostname==='auth.jportal-nsph.com';
+  const env=custom?'22f37616-5cf6-47ee-8111-f0c870cbfa8f':issuer.pathname.split('/')[1];
   if(!mfaUuid.test(userId)||deviceId&&!mfaUuid.test(deviceId))throw Error('Invalid MFA device request.');
-  return 'https://'+issuer.hostname.replace(/^auth\./,'api.')+'/v1/environments/'+env+'/users/'+userId+'/devices'+(deviceId?'/'+deviceId:'');
+  return 'https://'+(custom?'api.pingone.sg':issuer.hostname.replace(/^auth\./,'api.'))+'/v1/environments/'+env+'/users/'+userId+'/devices'+(deviceId?'/'+deviceId:'');
 }
 async function mfaApi(url,options={}){
   if(!session?.accessToken)throw Error('Sign in again to manage your authenticator.');
@@ -282,7 +306,41 @@ async function activateAuthenticator(event){
   }catch(error){mfaError=error.message;renderEnrollment()}
 }
 
-async function callback(){const q=new URLSearchParams(location.search);if(!q.has('code')&&!q.has('error'))return;const p=safeParse(sessionStorage.getItem('north.pending'),null);sessionStorage.removeItem('north.pending');history.replaceState({},'',baseURL);if(!p||q.get('state')!==p.state||Date.now()-p.created>600000||p.issuer!==config.issuer||p.clientId!==config.clientId)throw Error('Sign-in request expired or state did not match. Start again.');if(q.has('error'))throw Error('PingOne did not complete sign-in: '+q.get('error'));app.innerHTML='<main id="main" class="login-form"><p role="status">Completing secure sign-in…</p></main>';const d=await discovery(),t=await getJSON(d.token_endpoint,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'authorization_code',client_id:config.clientId,code:q.get('code'),redirect_uri:baseURL,code_verifier:p.verifier})});if(!t.id_token||!t.access_token||String(t.token_type).toLowerCase()!=='bearer')throw Error('PingOne returned an incomplete token response.');const claims=await validateIDToken(t.id_token,d,p);const user=await getJSON(d.userinfo_endpoint,{headers:{Authorization:'Bearer '+t.access_token}});if(user.sub!==claims.sub)throw Error('UserInfo identity mismatch.');session={mode:'pingone',user,exp:claims.exp,idToken:t.id_token,accessToken:t.access_token,logoutEndpoint:d.end_session_endpoint,mfaReady:false};mfaDevice=null;mfaError='';mfaFinished=false;mfaNeedsEnable=false;mfaEnrollmentOpen=false;mfaPageError='';await loadMfaState();if(session.mfaReady)await loadBanking();expiryTimer=setTimeout(()=>{session=null;loginError='Your session expired. Sign in again.';page='overview';render()},Math.min(Math.max(0,claims.exp*1000-Date.now()),2147483647));page='overview';loginError=''}
-function signout(){const old=session;mfaDevice=null;mfaError='';mfaFinished=false;mfaNeedsEnable=false;mfaEnrollmentOpen=false;mfaPageError='';clearTimeout(expiryTimer);session=null;page='overview';balance=128450.50;transactions=transactions.filter(t=>!t.detail.startsWith('Simulated'));sessionStorage.removeItem('north.pending');sessionStorage.setItem('north.skipAutoLogin','1');if(old?.mode==='pingone'&&old.logoutEndpoint){const u=new URL(old.logoutEndpoint);u.search=new URLSearchParams({id_token_hint:old.idToken,post_logout_redirect_uri:baseURL}).toString();location.assign(u.href)}else render()}
+async function callback(){const q=new URLSearchParams(location.search);if(!q.has('code')&&!q.has('error'))return;const p=safeParse(sessionStorage.getItem('north.pending'),null);sessionStorage.removeItem('north.pending');history.replaceState({},'',baseURL);if(!p||q.get('state')!==p.state||Date.now()-p.created>600000||p.issuer!==config.issuer||p.clientId!==config.clientId)throw Error('Sign-in request expired or state did not match. Start again.');if(q.has('error'))throw Error('PingOne did not complete sign-in: '+q.get('error'));app.innerHTML='<main id="main" class="login-form"><p role="status">Completing secure sign-in…</p></main>';const d=await discovery(),t=await getJSON(d.token_endpoint,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'authorization_code',client_id:config.clientId,code:q.get('code'),redirect_uri:baseURL,code_verifier:p.verifier})});if(!t.id_token||!t.access_token||String(t.token_type).toLowerCase()!=='bearer')throw Error('PingOne returned an incomplete token response.');const claims=await validateIDToken(t.id_token,d,p);const user=await getJSON(d.userinfo_endpoint,{headers:{Authorization:'Bearer '+t.access_token}});if(user.sub!==claims.sub)throw Error('UserInfo identity mismatch.');session={mode:'pingone',user,exp:claims.exp,idToken:t.id_token,accessToken:t.access_token,logoutEndpoint:d.end_session_endpoint,mfaReady:false};mfaDevice=null;mfaError='';mfaFinished=false;mfaNeedsEnable=false;mfaEnrollmentOpen=false;mfaPageError='';await loadMfaState();if(session.mfaReady)await loadBanking();expiryTimer=setTimeout(()=>{session=null;loginError='Your session expired. Sign in again.';page='overview';render()},Math.min(Math.max(0,claims.exp*1000-Date.now()),2147483647));sessionStorage.setItem('north.returning','1');startSessionWatch();page='overview';loginError=''}
+let sessionWatch,checkingSession=false;
+function clearBankSession(){
+  clearTimeout(expiryTimer);clearInterval(sessionWatch);
+  session=null;mfaDevice=null;mfaError='';mfaFinished=false;mfaNeedsEnable=false;mfaEnrollmentOpen=false;mfaPageError='';
+  sessionStorage.removeItem('north.pending');sessionStorage.removeItem('north.returning');sessionStorage.removeItem('north.skipAutoLogin');
+  page='overview';
+  if(typeof bankAccount!=='undefined'){bankAccount=null;bankHistory=[];transactions=[];balance=0;}
+}
+async function checkIdentitySession(){
+  if(!session?.accessToken||checkingSession)return;
+  const active=session;checkingSession=true;
+  try{
+    const response=await fetch(config.issuer+'/userinfo',{headers:{Authorization:'Bearer '+active.accessToken},credentials:'omit',cache:'no-store',redirect:'error',signal:AbortSignal.timeout(10000)});
+    if(response.status===401||response.status===403){
+      if(session===active){clearBankSession();await startLogin();}
+    }else if(!response.ok)throw Error('Session verification unavailable.');
+    else {const profile=await response.json();if(profile.sub!==active.user.sub)throw Error('Session identity mismatch.');}
+  }catch(error){
+    if(session===active){clearBankSession();authError(Error('We could not confirm your session. Sign in again to continue.'));}
+  }finally{checkingSession=false;}
+}
+function startSessionWatch(){clearInterval(sessionWatch);sessionWatch=setInterval(checkIdentitySession,30000);}
+function signout(){
+  clearBankSession();
+  // The hub clears its HttpOnly cookies and ends the shared PingOne session.
+  location.replace('https://jportal-nsph.com/auth/logout');
+}
+if(typeof window!=='undefined'){
+  window.addEventListener('focus',checkIdentitySession);
+  window.addEventListener('pagehide',()=>{app.replaceChildren();clearInterval(sessionWatch);});
+  window.addEventListener('pageshow',event=>{if(event.persisted){
+    // Re-establish through PingOne rather than trusting a restored in-memory dashboard.
+    clearTimeout(expiryTimer);clearInterval(sessionWatch);session=null;location.replace(baseURL);
+  }});
+}
 if(typeof document!=='undefined'){const query=new URLSearchParams(location.search);const hasAuthResponse=query.has('code')||query.has('error');const hasFlow=query.has('flowId');const skipAutoLogin=sessionStorage.getItem('north.skipAutoLogin')==='1';sessionStorage.removeItem('north.skipAutoLogin');if(hasFlow){login()}else if(hasAuthResponse){callback().then(()=>render()).catch(authError)}else{if(skipAutoLogin)loginError='You are signed out.';render();if(!session&&!skipAutoLogin&&config.issuer&&config.clientId)startLogin().catch(authError)}}
 
